@@ -1,4 +1,40 @@
 // WebRTC calls via Socket.IO signaling
+
+// ── Ringtone (Web Audio API) ──────────────────────────────────────────────────
+let ringtoneInterval = null;
+let audioCtx = null;
+
+function startRingtone() {
+  stopRingtone();
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function beep() {
+    if (!audioCtx) return;
+    const times = [[0, 440], [0.15, 480], [0.3, 440], [0.45, 480]];
+    times.forEach(([offset, freq]) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0, audioCtx.currentTime + offset);
+      gain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + offset + 0.05);
+      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + offset + 0.14);
+      osc.start(audioCtx.currentTime + offset);
+      osc.stop(audioCtx.currentTime + offset + 0.15);
+    });
+  }
+
+  beep();
+  ringtoneInterval = setInterval(beep, 2000);
+}
+
+function stopRingtone() {
+  if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+}
+
 let peerConnection = null;
 let localStream = null;
 let currentCallType = 'audio'; // 'audio' | 'video'
@@ -90,10 +126,12 @@ socket.on('incoming_call', (data) => {
   }
 
   document.getElementById('incomingCallOverlay').classList.add('active');
+  startRingtone();
 });
 
 async function acceptCall() {
   if (!incomingCallData) return;
+  stopRingtone();
   document.getElementById('incomingCallOverlay').classList.remove('active');
 
   const data = incomingCallData;
@@ -147,6 +185,7 @@ async function acceptCall() {
 
 function rejectCall() {
   if (!incomingCallData) return;
+  stopRingtone();
   socket.emit('call_reject', { caller_id: incomingCallData.caller_id });
   document.getElementById('incomingCallOverlay').classList.remove('active');
   incomingCallData = null;
@@ -185,6 +224,7 @@ function endCall() {
 }
 
 function cleanupCall() {
+  stopRingtone();
   if (peerConnection) { peerConnection.close(); peerConnection = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
 
