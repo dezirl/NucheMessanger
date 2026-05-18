@@ -14,14 +14,15 @@ from PIL import Image
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-key-in-production')
-_db_path = os.environ.get('DATABASE_PATH', '')
-if _db_path:
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_db_path}/messenger.db'
+_db_url = os.environ.get('DATABASE_URL', '')
+if _db_url:
+    _db_url = _db_url.replace('postgres://', 'postgresql+pg8000://', 1)
+    _db_url = _db_url.replace('postgresql://', 'postgresql+pg8000://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messenger.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-_data_path = os.environ.get('DATABASE_PATH', '')
-app.config['UPLOAD_FOLDER'] = os.path.join(_data_path, 'uploads') if _data_path else os.path.join('static', 'uploads')
+app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 db = SQLAlchemy(app)
