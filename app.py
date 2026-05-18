@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import os
 import io
 import uuid
@@ -855,8 +858,15 @@ def init_db():
         print('[+] Admin created: zer0tune / zxcfriday15')
 
 # Вызывается и через gunicorn и через python app.py
+import time
 with app.app_context():
-    init_db()
+    for _attempt in range(5):
+        try:
+            init_db()
+            break
+        except Exception as e:
+            print(f'[DB] attempt {_attempt+1} failed: {e}')
+            time.sleep(2)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
