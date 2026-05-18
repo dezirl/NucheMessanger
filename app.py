@@ -472,7 +472,7 @@ def edit_profile():
 
         db.session.commit()
         # Уведомить всех онлайн-пользователей об изменении профиля
-        socketio.emit('user_updated', user.to_dict(), broadcast=True)
+        socketio.emit('user_updated', user.to_dict(), namespace='/')
         flash('Профиль обновлён.', 'success')
         return redirect(url_for('profile', username=user.username))
 
