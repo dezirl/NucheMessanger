@@ -16,8 +16,10 @@ socket.on('connect', () => {
 
 socket.on('new_message', (msg) => {
   if (currentPartnerId && (msg.sender_id === currentPartnerId || msg.receiver_id === currentPartnerId)) {
-    appendMessage(msg);
-    scrollToBottom();
+    if (msg.sender_id !== CURRENT_USER_ID) {
+      appendMessage(msg);
+      scrollToBottom();
+    }
     fetch(`/api/messages/${currentPartnerId}?page=1`); // mark as read
   }
   loadConversations();
