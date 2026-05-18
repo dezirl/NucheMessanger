@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Редактировать профиль — NucheMessenger{% endblock %}
 {% block body %}
+<script>document.body.classList.add('scrollable-page');</script>
 <nav class="top-nav">
   <a href="/chat" class="top-nav-brand" style="text-decoration:none;color:var(--text)">
     <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></div>
@@ -52,6 +53,19 @@
           <label>О себе</label>
           <textarea name="bio" rows="3" placeholder="Расскажите о себе..." maxlength="300">{{ current_user.bio }}</textarea>
           <p class="form-hint">Максимум 300 символов</p>
+        </div>
+
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div>
+              <div style="font-weight:600;font-size:14px;">Скрыть время посещения</div>
+              <div class="form-hint" style="margin-top:2px;">Другие будут видеть «недавно» вместо точного времени</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" name="hide_last_seen" value="1" {% if current_user.hide_last_seen %}checked{% endif %}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <div style="display:flex; gap:10px; justify-content:flex-end;">

@@ -198,6 +198,21 @@
   <img id="lightboxImg" src="" alt="">
 </div>
 
+<script>
+// iOS keyboard fix — when keyboard opens, scroll messages to bottom
+if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+  const visualViewport = window.visualViewport;
+  if (visualViewport) {
+    visualViewport.addEventListener('resize', () => {
+      const area = document.getElementById('messagesArea');
+      if (area) {
+        area.style.maxHeight = (visualViewport.height - 120) + 'px';
+        area.scrollTop = area.scrollHeight;
+      }
+    });
+  }
+}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 const CURRENT_USER_ID = {{ current_user.id }};

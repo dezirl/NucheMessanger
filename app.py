@@ -49,6 +49,27 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     online = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    hide_last_seen = db.Column(db.Boolean, default=False)
+
+    def format_last_seen(self):
+        if self.online:
+            return 'онлайн'
+        if self.hide_last_seen:
+            return 'недавно'
+        if not self.last_seen:
+            return 'недавно'
+        now = datetime.utcnow()
+        diff = now - self.last_seen
+        if diff.total_seconds() < 60:
+            return 'только что'
+        if diff.total_seconds() < 3600:
+            mins = int(diff.total_seconds() // 60)
+            return f'{mins} мин. назад'
+        if diff.days == 0:
+            return f'сегодня в {self.last_seen.strftime("%H:%M")}'
+        if diff.days == 1:
+            return f'вчера в {self.last_seen.strftime("%H:%M")}'
+        return self.last_seen.strftime('%d.%m.%Y')
 
     def to_dict(self):
         return {
@@ -58,7 +79,8 @@ class User(db.Model):
             'avatar': url_for('static', filename=self.avatar) if self.avatar else url_for('static', filename='default_avatar.svg'),
             'bio': self.bio,
             'online': self.online,
-            'last_seen': self.last_seen.strftime('%d.%m.%Y %H:%M') if self.last_seen else '',
+            'last_seen': self.format_last_seen(),
+            'hide_last_seen': self.hide_last_seen,
         }
 
 
@@ -435,6 +457,7 @@ def edit_profile():
         if dn:
             user.display_name = dn
         user.bio = bio
+        user.hide_last_seen = request.form.get('hide_last_seen') == '1'
 
         if 'avatar' in request.files:
             f = request.files['avatar']
@@ -448,6 +471,8 @@ def edit_profile():
                 user.avatar = f"uploads/avatars/{fname}"
 
         db.session.commit()
+        # Уведомить всех онлайн-пользователей об изменении профиля
+        socketio.emit('user_updated', user.to_dict(), broadcast=True)
         flash('Профиль обновлён.', 'success')
         return redirect(url_for('profile', username=user.username))
 

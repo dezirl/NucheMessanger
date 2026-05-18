@@ -50,6 +50,25 @@ socket.on('new_conversation_notify', (msg) => {
   }
 });
 
+socket.on('user_updated', (user) => {
+  // Обновить хедер чата если открыт диалог с этим пользователем
+  if (currentPartnerId === user.id) {
+    document.getElementById('partnerName').textContent = user.display_name;
+    const avatarWrap = document.getElementById('partnerAvatarWrap');
+    const initials = user.display_name ? user.display_name[0].toUpperCase() : '?';
+    avatarWrap.innerHTML = user.avatar
+      ? `<img class="avatar" src="${user.avatar}?t=${Date.now()}" alt=""><span class="online-dot" id="partnerOnlineDot" style="${user.online ? '' : 'display:none'}"></span>`
+      : `<div class="avatar-placeholder">${initials}</div>`;
+    const statusEl = document.getElementById('partnerStatus');
+    if (statusEl) {
+      statusEl.textContent = user.online ? 'онлайн' : user.last_seen;
+      statusEl.className = 'status' + (user.online ? ' online' : '');
+    }
+  }
+  // Обновить список диалогов
+  loadConversations();
+});
+
 socket.on('ticket_reply_notify', (data) => {
   showNotification(`Ответ на тикет: ${data.subject}`, `/support/ticket/${data.ticket_id}`);
 });
