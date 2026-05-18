@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}Каналы — Flight{% endblock %}
+{% block body %}
+<script>document.body.classList.add('scrollable-page');</script>
+<nav class="top-nav">
+  <a href="/chat" class="top-nav-brand" style="text-decoration:none;color:var(--text)">
+    <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></div>
+    Flight
+  </a>
+  <div class="top-nav-links">
+    <a href="/chat" class="nav-link">Чат</a>
+    <a href="/channels" class="nav-link active">Каналы</a>
+    <a href="/support" class="nav-link">Поддержка</a>
+  </div>
+  <div class="top-nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()">
+      <svg class="theme-icon-light" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      <svg class="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+    </button>
+  </div>
+</nav>
+<div class="page-content" style="max-width:800px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+    <h1 style="font-size:22px;font-weight:700;">Каналы</h1>
+    <a href="/channels/create" class="btn btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+      Создать канал
+    </a>
+  </div>
+  <form method="GET" style="display:flex;gap:8px;margin-bottom:20px;">
+    <input type="text" name="q" value="{{ search }}" placeholder="Поиск по названию или @username..." style="flex:1;">
+    <button type="submit" class="btn btn-primary">Найти</button>
+    {% if search %}<a href="/channels" class="btn btn-ghost">Сбросить</a>{% endif %}
+  </form>
+  {% if get_flashed_messages() %}
+  <div class="flash-messages">
+    {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if channels %}
+  <div style="display:flex;flex-direction:column;gap:10px;">
+    {% for ch in channels %}
+    <a href="/channel/{{ ch.username }}" class="ticket-item" style="display:flex;align-items:center;gap:14px;">
+      {% if ch.avatar %}
+      <img src="{{ url_for('static', filename=ch.avatar) }}" style="width:48px;height:48px;border-radius:14px;object-fit:cover;flex-shrink:0;">
+      {% else %}
+      <div style="width:48px;height:48px;border-radius:14px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0;">{{ ch.name[0] }}</div>
+      {% endif %}
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-weight:700;font-size:15px;">{{ ch.name }}</span>
+          {% if ch.is_live %}<span class="live-badge">🔴 LIVE</span>{% endif %}
+        </div>
+        <div style="color:var(--text-muted);font-size:12px;margin-top:2px;">@{{ ch.username }} · {{ ch.sub_count() }} подписчиков</div>
+        {% if ch.description %}<div style="color:var(--text-muted);font-size:13px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ch.description }}</div>{% endif %}
+      </div>
+      {% if ch.id in my_subs %}
+      <span class="badge badge-purple" style="flex-shrink:0;">Подписан</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;color:var(--text-faint);margin-bottom:12px;"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+    <h3>Каналов нет</h3>
+    <p>Создайте первый канал и начните вещание</p>
+    <a href="/channels/create" class="btn btn-primary" style="margin-top:16px;">Создать канал</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

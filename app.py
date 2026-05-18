@@ -30,6 +30,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 online_users = {}  # sid -> user_id
+stream_sessions = {}  # channel_id -> streamer_sid
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -191,6 +192,72 @@ class GroupMessage(db.Model):
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
             'sender': self.sender.to_dict() if self.sender else None,
+        }
+
+
+class Channel(db.Model):
+    __tablename__ = 'channel'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    description = db.Column(db.Text, default='')
+    avatar = db.Column(db.String(256), default='')
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_live = db.Column(db.Boolean, default=False)
+
+    owner = db.relationship('User', foreign_keys=[owner_id])
+    subscriptions = db.relationship('ChannelSubscription', backref='channel', lazy='dynamic')
+    posts = db.relationship('ChannelPost', backref='channel', lazy='dynamic',
+                             order_by='ChannelPost.created_at.desc()')
+
+    def sub_count(self):
+        return self.subscriptions.count()
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'username': self.username,
+            'description': self.description,
+            'avatar': url_for('static', filename=self.avatar) if self.avatar else '',
+            'owner_id': self.owner_id,
+            'is_live': self.is_live,
+            'sub_count': self.sub_count(),
+        }
+
+
+class ChannelSubscription(db.Model):
+    __tablename__ = 'channel_subscription'
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.Integer, db.ForeignKey('channel.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    subscribed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User')
+    __table_args__ = (db.UniqueConstraint('channel_id', 'user_id'),)
+
+
+class ChannelPost(db.Model):
+    __tablename__ = 'channel_post'
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.Integer, db.ForeignKey('channel.id'), nullable=False)
+    content = db.Column(db.Text, default='')
+    image_path = db.Column(db.String(256), default='')
+    message_type = db.Column(db.String(20), default='text')
+    views = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'channel_id': self.channel_id,
+            'content': self.content,
+            'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
+            'message_type': self.message_type,
+            'views': self.views,
+            'created_at': self.created_at.strftime('%H:%M'),
+            'created_date': self.created_at.strftime('%d.%m.%Y'),
         }
 
 
@@ -494,11 +561,23 @@ def api_search_users():
     if not q:
         return jsonify([])
     uid = session['user_id']
-    users = User.query.filter(
-        (User.username.ilike(f'%{q}%') | User.display_name.ilike(f'%{q}%')),
-        User.id != uid,
-        User.is_banned == False,
-    ).limit(20).all()
+    username_only = q.startswith('@')
+    if username_only:
+        q = q[1:].strip()
+        if not q:
+            return jsonify([])
+    if username_only:
+        users = User.query.filter(
+            User.username.ilike(f'%{q}%'),
+            User.id != uid,
+            User.is_banned == False,
+        ).limit(20).all()
+    else:
+        users = User.query.filter(
+            (User.username.ilike(f'%{q}%') | User.display_name.ilike(f'%{q}%')),
+            User.id != uid,
+            User.is_banned == False,
+        ).limit(20).all()
     return jsonify([u.to_dict() for u in users])
 
 
@@ -661,6 +740,214 @@ def api_group_add_member(group_id):
     return jsonify({'ok': True})
 
 
+# ── Channels ──────────────────────────────────────────────────────────────────
+
+@app.route('/channels')
+@login_required
+def channels_list():
+    user = db.session.get(User, session['user_id'])
+    q = request.args.get('q', '').strip()
+    if q:
+        channels = Channel.query.filter(
+            Channel.name.ilike(f'%{q}%') | Channel.username.ilike(f'%{q}%')
+        ).order_by(Channel.created_at.desc()).limit(50).all()
+    else:
+        channels = Channel.query.order_by(Channel.created_at.desc()).limit(50).all()
+    my_subs = {s.channel_id for s in ChannelSubscription.query.filter_by(user_id=user.id).all()}
+    return render_template('channels/index.html', current_user=user, channels=channels,
+                           my_subs=my_subs, search=q)
+
+
+@app.route('/channels/create', methods=['GET', 'POST'])
+@login_required
+def create_channel():
+    user = db.session.get(User, session['user_id'])
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        username = request.form.get('username', '').strip().lower()
+        description = request.form.get('description', '').strip()
+
+        if not name or not username:
+            flash('Заполните название и юзернейм.', 'error')
+            return render_template('channels/create.html', current_user=user)
+        if len(username) < 3 or len(username) > 30:
+            flash('Юзернейм канала: от 3 до 30 символов.', 'error')
+            return render_template('channels/create.html', current_user=user)
+        if not all(c.isalnum() or c == '_' for c in username):
+            flash('Юзернейм канала: только буквы, цифры и _.', 'error')
+            return render_template('channels/create.html', current_user=user)
+        if Channel.query.filter_by(username=username).first():
+            flash('Этот юзернейм канала уже занят.', 'error')
+            return render_template('channels/create.html', current_user=user)
+
+        ch = Channel(name=name, username=username, description=description, owner_id=user.id)
+
+        if 'avatar' in request.files:
+            f = request.files['avatar']
+            if f and f.filename and allowed_file(f.filename):
+                compressed = compress_image(f, max_size=(400, 400), quality=85)
+                fname = f"channel_{uuid.uuid4().hex[:8]}.jpg"
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                with open(fpath, 'wb') as fp:
+                    fp.write(compressed.read())
+                ch.avatar = f"uploads/avatars/{fname}"
+
+        db.session.add(ch)
+        db.session.flush()
+        db.session.add(ChannelSubscription(channel_id=ch.id, user_id=user.id))
+        db.session.commit()
+        flash('Канал создан!', 'success')
+        return redirect(url_for('channel_page', ch_username=username))
+
+    return render_template('channels/create.html', current_user=user)
+
+
+@app.route('/channel/<ch_username>')
+@login_required
+def channel_page(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    is_subscribed = ChannelSubscription.query.filter_by(channel_id=ch.id, user_id=user.id).first() is not None
+    is_owner = ch.owner_id == user.id
+    posts = ch.posts.limit(50).all()
+    posts = list(reversed(posts))
+    return render_template('channels/channel.html', current_user=user, channel=ch,
+                           is_subscribed=is_subscribed, is_owner=is_owner, posts=posts)
+
+
+@app.route('/channel/<ch_username>/subscribe', methods=['POST'])
+@login_required
+def channel_subscribe(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    sub = ChannelSubscription.query.filter_by(channel_id=ch.id, user_id=user.id).first()
+    if sub:
+        db.session.delete(sub)
+        db.session.commit()
+        return jsonify({'subscribed': False, 'sub_count': ch.sub_count()})
+    else:
+        db.session.add(ChannelSubscription(channel_id=ch.id, user_id=user.id))
+        db.session.commit()
+        return jsonify({'subscribed': True, 'sub_count': ch.sub_count()})
+
+
+@app.route('/channel/<ch_username>/post', methods=['POST'])
+@login_required
+def channel_post_create(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+
+    content = request.form.get('content', '').strip()
+    image_path = ''
+    msg_type = 'text'
+
+    if 'image' in request.files:
+        f = request.files['image']
+        if f and f.filename and allowed_file(f.filename):
+            compressed = compress_image(f)
+            fname = f"{uuid.uuid4().hex}.jpg"
+            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, 'wb') as fp:
+                fp.write(compressed.read())
+            image_path = f"uploads/messages/{fname}"
+            msg_type = 'mixed' if content else 'image'
+
+    if not content and not image_path:
+        return jsonify({'error': 'empty'}), 400
+
+    post = ChannelPost(channel_id=ch.id, content=content,
+                       image_path=image_path, message_type=msg_type)
+    db.session.add(post)
+    db.session.commit()
+
+    socketio.emit('channel_post', post.to_dict(), room=f'channel_{ch.id}')
+    return jsonify(post.to_dict())
+
+
+@app.route('/channel/<ch_username>/live/start', methods=['POST'])
+@login_required
+def channel_live_start(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+    ch.is_live = True
+    db.session.commit()
+    socketio.emit('channel_went_live', {'channel_id': ch.id, 'channel_name': ch.name},
+                  room=f'channel_{ch.id}')
+    return jsonify({'ok': True})
+
+
+@app.route('/channel/<ch_username>/live/stop', methods=['POST'])
+@login_required
+def channel_live_stop(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+    ch.is_live = False
+    db.session.commit()
+    stream_sessions.pop(ch.id, None)
+    socketio.emit('channel_stream_ended', {'channel_id': ch.id}, room=f'channel_{ch.id}')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/channels/subscribed')
+@login_required
+def api_subscribed_channels():
+    uid = session['user_id']
+    subs = ChannelSubscription.query.filter_by(user_id=uid).all()
+    result = []
+    for s in subs:
+        ch = db.session.get(Channel, s.channel_id)
+        if not ch:
+            continue
+        last_post = ch.posts.first()
+        result.append({
+            'channel': ch.to_dict(),
+            'last_post': last_post.to_dict() if last_post else None,
+        })
+    return jsonify(result)
+
+
+@app.route('/api/channels/search')
+@login_required
+def api_search_channels():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([])
+    if q.startswith('@'):
+        q = q[1:].strip()
+    uid = session['user_id']
+    channels = Channel.query.filter(
+        Channel.username.ilike(f'%{q}%') | Channel.name.ilike(f'%{q}%')
+    ).limit(10).all()
+    my_subs = {s.channel_id for s in ChannelSubscription.query.filter_by(user_id=uid).all()}
+    return jsonify([{**c.to_dict(), 'is_subscribed': c.id in my_subs} for c in channels])
+
+
+@app.route('/api/channel/<int:channel_id>/posts')
+@login_required
+def api_channel_posts(channel_id):
+    uid = session['user_id']
+    ch = db.session.get(Channel, channel_id)
+    if not ch:
+        return jsonify({'error': 'not found'}), 404
+    page = request.args.get('page', 1, type=int)
+    posts = ch.posts.paginate(page=page, per_page=30, error_out=False)
+    return jsonify({
+        'posts': [p.to_dict() for p in reversed(posts.items)],
+        'has_more': posts.has_next,
+        'channel': ch.to_dict(),
+        'is_owner': ch.owner_id == uid,
+        'is_subscribed': ChannelSubscription.query.filter_by(channel_id=channel_id, user_id=uid).first() is not None,
+    })
+
+
 # ── Profile ───────────────────────────────────────────────────────────────────
 
 @app.route('/profile/<username>')
@@ -683,6 +970,19 @@ def edit_profile():
             user.display_name = dn
         user.bio = bio
         user.hide_last_seen = request.form.get('hide_last_seen') == '1'
+
+        new_username = request.form.get('username', '').strip().lower()
+        if new_username and new_username != user.username:
+            if len(new_username) < 3 or len(new_username) > 20:
+                flash('Юзернейм: от 3 до 20 символов.', 'error')
+                return render_template('profile_edit.html', current_user=user)
+            if not all(c.isalnum() or c in ('_', '.') for c in new_username):
+                flash('Юзернейм: только буквы, цифры, _ и .', 'error')
+                return render_template('profile_edit.html', current_user=user)
+            if User.query.filter_by(username=new_username).first():
+                flash('Этот юзернейм уже занят.', 'error')
+                return render_template('profile_edit.html', current_user=user)
+            user.username = new_username
 
         if 'avatar' in request.files:
             f = request.files['avatar']
@@ -1003,6 +1303,8 @@ def on_connect():
     # Auto-join group rooms
     for m in GroupMember.query.filter_by(user_id=uid).all():
         join_room(f'group_{m.group_id}')
+    for s in ChannelSubscription.query.filter_by(user_id=uid).all():
+        join_room(f'channel_{s.channel_id}')
     emit('user_status', {'user_id': uid, 'online': True}, broadcast=True)
 
 
@@ -1148,6 +1450,96 @@ def on_call_end(data):
     for sid in sids_for_user(uid):
         if sid != request.sid:
             emit('call_stop_ringing', {}, room=sid)
+
+
+# ── Stream signaling ──────────────────────────────────────────────────────────
+
+@socketio.on('stream_start')
+def on_stream_start(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    channel_id = data.get('channel_id')
+    ch = db.session.get(Channel, channel_id)
+    if not ch or ch.owner_id != uid:
+        return
+    stream_sessions[channel_id] = request.sid
+    join_room(f'stream_{channel_id}')
+    ch.is_live = True
+    db.session.commit()
+    socketio.emit('channel_went_live', {'channel_id': channel_id, 'channel_name': ch.name},
+                  room=f'channel_{channel_id}')
+
+
+@socketio.on('stream_stop')
+def on_stream_stop(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    channel_id = data.get('channel_id')
+    ch = db.session.get(Channel, channel_id)
+    if not ch or ch.owner_id != uid:
+        return
+    stream_sessions.pop(channel_id, None)
+    ch.is_live = False
+    db.session.commit()
+    socketio.emit('channel_stream_ended', {'channel_id': channel_id},
+                  room=f'channel_{channel_id}')
+
+
+@socketio.on('stream_viewer_join')
+def on_stream_viewer_join(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    channel_id = data.get('channel_id')
+    join_room(f'stream_{channel_id}')
+    streamer_sid = stream_sessions.get(channel_id)
+    if streamer_sid:
+        emit('stream_viewer_joined', {
+            'viewer_id': uid,
+            'viewer_sid': request.sid,
+            'viewer_name': db.session.get(User, uid).display_name,
+        }, room=streamer_sid)
+
+
+@socketio.on('stream_offer')
+def on_stream_offer(data):
+    viewer_sid = data.get('viewer_sid')
+    if viewer_sid:
+        emit('stream_offer', {
+            'offer': data.get('offer'),
+            'channel_id': data.get('channel_id'),
+            'streamer_sid': request.sid,
+        }, room=viewer_sid)
+
+
+@socketio.on('stream_answer')
+def on_stream_answer(data):
+    channel_id = data.get('channel_id')
+    streamer_sid = stream_sessions.get(channel_id)
+    if streamer_sid:
+        emit('stream_answer', {
+            'answer': data.get('answer'),
+            'viewer_sid': request.sid,
+        }, room=streamer_sid)
+
+
+@socketio.on('stream_ice')
+def on_stream_ice(data):
+    target_sid = data.get('target_sid')
+    if target_sid:
+        emit('stream_ice', {'candidate': data.get('candidate')}, room=target_sid)
+
+
+@socketio.on('join_channel_room')
+def on_join_channel_room(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    channel_id = data.get('channel_id')
+    if channel_id:
+        join_room(f'channel_{channel_id}')
 
 
 # ── Init ──────────────────────────────────────────────────────────────────────

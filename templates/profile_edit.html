@@ -45,6 +45,12 @@
         </div>
 
         <div class="form-group">
+          <label>Юзернейм</label>
+          <input type="text" name="username" value="{{ current_user.username }}" placeholder="username" maxlength="20">
+          <p class="form-hint">3–20 символов: буквы, цифры, _ и . — будет использоваться для поиска</p>
+        </div>
+
+        <div class="form-group">
           <label>Отображаемое имя</label>
           <input type="text" name="display_name" value="{{ current_user.display_name }}" placeholder="Ваше имя" maxlength="100">
         </div>

@@ -107,7 +107,8 @@ function _doLoadConversations() {
   Promise.all([
     fetch('/api/conversations').then(r => r.json()),
     fetch('/api/groups').then(r => r.json()),
-  ]).then(([convs, groups]) => {
+    fetch('/api/channels/subscribed').then(r => r.json()),
+  ]).then(([convs, groups, channels]) => {
     const directItems = convs.map(c => ({
       type: 'direct',
       sortKey: c.last_message ? (c.last_message.created_date + c.last_message.created_at) : '',
@@ -118,13 +119,20 @@ function _doLoadConversations() {
       sortKey: g.last_message ? (g.last_message.created_date + g.last_message.created_at) : '',
       data: g,
     }));
-    const all = [...directItems, ...groupItems]
+    const channelItems = channels.map(ch => ({
+      type: 'channel',
+      sortKey: ch.last_post ? (ch.last_post.created_date + ch.last_post.created_at) : '',
+      data: ch,
+    }));
+    const all = [...directItems, ...groupItems, ...channelItems]
       .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
 
     const signature = JSON.stringify(all.map(x =>
       x.type === 'direct'
         ? `d${x.data.partner.id}:${x.data.last_message?.created_at || ''}:${x.data.unread_count}`
-        : `g${x.data.group.id}:${x.data.last_message?.created_at || ''}`
+        : x.type === 'group'
+        ? `g${x.data.group.id}:${x.data.last_message?.created_at || ''}`
+        : `c${x.data.channel.id}:${x.data.last_post?.created_at || ''}:${x.data.channel.is_live}`
     ));
     if (signature === _lastConvRender) return;
     _lastConvRender = signature;
@@ -143,6 +151,8 @@ function renderConvList(items) {
   list.innerHTML = items.map(item =>
     item.type === 'group'
       ? renderGroupItem(item.data)
+      : item.type === 'channel'
+      ? renderChannelItem(item.data)
       : renderConversationItem(item.data)
   ).join('');
 }
@@ -197,6 +207,36 @@ function renderGroupItem(g) {
       <span class="conv-time">${time}</span>
     </div>
   </div>`;
+}
+
+function renderChannelItem(ch) {
+  const c = ch.channel;
+  const active = (currentChatType === 'channel' && currentChannelId === c.id) ? 'active' : '';
+  const lastPost = ch.last_post ? (ch.last_post.message_type === 'image' ? '📷 Фото' : escapeHtml((ch.last_post.content || '').slice(0, 40))) : 'Нет постов';
+  const time = ch.last_post ? ch.last_post.created_at : '';
+  const liveTag = c.is_live ? ' <span style="color:#ef4444;font-size:10px;font-weight:700;">LIVE</span>' : '';
+  const initials = c.name ? c.name[0].toUpperCase() : '#';
+  return `<div class="conv-item ${active}" onclick="openChannelInSidebar(${c.id}, '${escapeHtml(c.username)}')">
+    <div class="avatar-wrap">
+      ${c.avatar
+        ? `<img class="avatar" src="${c.avatar}" alt="">`
+        : `<div class="conv-channel-badge">${initials}</div>`}
+      ${c.is_live ? '<span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#ef4444;border-radius:50%;border:2px solid var(--surface);"></span>' : ''}
+    </div>
+    <div class="conv-info">
+      <div class="conv-name">${escapeHtml(c.name)}${liveTag}<span class="group-indicator" style="background:rgba(239,68,68,0.12);color:#ef4444;">КАНАЛ</span></div>
+      <div class="conv-preview">${lastPost}</div>
+    </div>
+    <div class="conv-meta">
+      <span class="conv-time">${time}</span>
+    </div>
+  </div>`;
+}
+
+let currentChannelId = null;
+
+function openChannelInSidebar(channelId, channelUsername) {
+  window.location.href = `/channel/${channelUsername}`;
 }
 
 // ── Open direct conversation ──────────────────────────────────────────────────

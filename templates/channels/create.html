@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}Создать канал — Flight{% endblock %}
+{% block body %}
+<script>document.body.classList.add('scrollable-page');</script>
+<nav class="top-nav">
+  <a href="/channels" class="top-nav-brand" style="text-decoration:none;color:var(--text)">
+    <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></div>
+    Flight
+  </a>
+</nav>
+<div class="page-content" style="max-width:560px">
+  <div style="margin-bottom:20px;"><a href="/channels" class="text-muted" style="font-size:13px;">← Назад к каналам</a></div>
+  <h2 style="font-size:20px;font-weight:700;margin-bottom:20px;">Новый канал</h2>
+  {% if get_flashed_messages() %}
+  <div class="flash-messages">
+    {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="card">
+    <div class="card-body">
+      <form method="POST" enctype="multipart/form-data">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+          <div id="chAvatarWrap" style="width:64px;height:64px;border-radius:14px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--accent);flex-shrink:0;">📢</div>
+          <div>
+            <label class="btn btn-ghost btn-sm" for="chAvatarFile" style="cursor:pointer;">Загрузить фото</label>
+            <input type="file" name="avatar" id="chAvatarFile" accept="image/*" style="display:none" onchange="previewChAvatar(this)">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Название канала</label>
+          <input type="text" name="name" placeholder="Название канала" required maxlength="100">
+        </div>
+        <div class="form-group">
+          <label>Username канала</label>
+          <input type="text" name="username" placeholder="my_channel" required maxlength="30" style="font-family:monospace;">
+          <p class="form-hint">Только буквы, цифры и _ — по этому имени канал находят через поиск</p>
+        </div>
+        <div class="form-group">
+          <label>Описание</label>
+          <textarea name="description" rows="3" placeholder="О чём этот канал..." maxlength="500"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <a href="/channels" class="btn btn-ghost">Отмена</a>
+          <button type="submit" class="btn btn-primary">Создать</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function previewChAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('chAvatarWrap').innerHTML = `<img src="${e.target.result}" style="width:64px;height:64px;border-radius:14px;object-fit:cover;">`;
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+{% endblock %}
