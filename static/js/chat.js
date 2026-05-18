@@ -124,6 +124,7 @@ function openConversation(partnerId) {
 
   loadPartnerInfo(partnerId);
   loadMessages(partnerId, 1);
+  mobileOpenChat();
 
   document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.conv-item').forEach(el => {
@@ -405,4 +406,22 @@ function showNotification(text, link) {
 function escapeHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Mobile navigation ─────────────────────────────────────────────────────────
+
+function isMobile() {
+  return window.innerWidth <= 768;
+}
+
+function mobileOpenChat() {
+  if (!isMobile()) return;
+  document.getElementById('sidebar').classList.add('mobile-hidden');
+  document.getElementById('chatArea').classList.add('mobile-active');
+}
+
+function mobileBackToSidebar() {
+  if (!isMobile()) return;
+  document.getElementById('sidebar').classList.remove('mobile-hidden');
+  document.getElementById('chatArea').classList.remove('mobile-active');
 }

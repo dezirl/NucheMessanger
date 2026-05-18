@@ -75,7 +75,7 @@
   </aside>
 
   <!-- Main chat area -->
-  <main class="chat-area">
+  <main class="chat-area" id="chatArea">
     <!-- Empty state -->
     <div class="chat-empty" id="chatEmpty">
       <div class="chat-empty-icon">
@@ -88,6 +88,9 @@
     <!-- Chat window (hidden by default) -->
     <div id="chatWindow" style="display:none; flex-direction:column; height:100%;">
       <div class="chat-header">
+        <button class="mobile-back-btn" onclick="mobileBackToSidebar()" title="Назад">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
         <div class="avatar-wrap" id="partnerAvatarWrap"></div>
         <div class="chat-header-info">
           <div class="name" id="partnerName"></div>

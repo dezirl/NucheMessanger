@@ -1030,8 +1030,148 @@ textarea { resize: vertical; }
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .sidebar { width: 100%; position: absolute; z-index: 10; transform: translateX(-100%); transition: transform var(--transition); }
-  .sidebar.mobile-open { transform: translateX(0); }
-  .admin-sidebar { width: 200px; }
-  .admin-content { margin-left: 200px; }
+  /* App layout — full screen switching */
+  .app-layout { position: relative; overflow: hidden; }
+
+  .sidebar {
+    width: 100%;
+    min-width: 100%;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    transform: translateX(0);
+    transition: transform 0.22s ease;
+  }
+  .sidebar.mobile-hidden {
+    transform: translateX(-100%);
+  }
+
+  .chat-area {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    z-index: 9;
+  }
+  .chat-area.mobile-active {
+    transform: translateX(0);
+  }
+
+  /* Chat header back button */
+  .mobile-back-btn {
+    display: flex !important;
+  }
+
+  /* Messages */
+  .message-row { max-width: 88%; }
+  .messages-area { padding: 12px; }
+
+  /* Input area */
+  .chat-input-area { padding: 8px 12px; }
+
+  /* Search */
+  .search-box { padding: 10px 12px; }
+
+  /* Sidebar footer */
+  .sidebar-footer { padding: 10px 12px; }
+
+  /* Profile page */
+  .profile-header { flex-direction: column; align-items: center; text-align: center; }
+  .profile-actions { justify-content: center; }
+  .profile-stats { justify-content: center; }
+
+  /* Admin */
+  .admin-sidebar {
+    width: 100%;
+    position: fixed;
+    bottom: 0; top: auto;
+    height: 56px;
+    flex-direction: row;
+    padding: 0;
+    border-top: 1px solid var(--border);
+    border-right: none;
+    z-index: 100;
+    overflow: hidden;
+  }
+  .admin-brand { display: none; }
+  .admin-nav {
+    display: flex;
+    flex-direction: row;
+    padding: 0;
+    width: 100%;
+    justify-content: space-around;
+    align-items: center;
+    height: 56px;
+  }
+  .admin-nav-item {
+    flex-direction: column;
+    padding: 6px 8px;
+    font-size: 10px;
+    gap: 2px;
+    margin-bottom: 0;
+    flex: 1;
+    justify-content: center;
+    align-items: center;
+    border-radius: 0;
+  }
+  .admin-nav-item svg { width: 20px; height: 20px; }
+  .admin-sidebar > div:last-child { display: none; }
+  .admin-content {
+    margin-left: 0;
+    padding: 16px;
+    padding-bottom: 72px;
+  }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card-value { font-size: 22px; }
+  .table { font-size: 12px; }
+  .table th, .table td { padding: 8px 10px; }
+
+  /* Call overlay */
+  .call-overlay { padding: 24px 16px; }
+  .video-container { max-width: 100%; }
+  #localVideo { width: 100px; bottom: 8px; right: 8px; }
+  .call-btn { width: 52px; height: 52px; }
+
+  /* Support */
+  .support-page { padding: 20px 14px; }
+
+  /* Top nav */
+  .top-nav { padding: 0 14px; }
+  .top-nav-links { display: none; }
+
+  /* Auth */
+  .auth-card { padding: 28px 20px; }
+
+  /* Page content */
+  .page-content { padding: 20px 14px; }
+  .card-body { padding: 14px; }
 }
+
+@media (max-width: 420px) {
+  .message-row { max-width: 95%; }
+  .sidebar-title { font-size: 14px; }
+}
+
+/* Back button — hidden on desktop */
+.mobile-back-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mobile-back-btn:hover { background: var(--surface2); color: var(--text); }
+.mobile-back-btn svg { width: 20px; height: 20px; }
+
+/* Admin bottom nav label */
+@media (max-width: 768px) {
+  .admin-nav-label { display: block; font-size: 10px; }
+}
+.admin-nav-label { display: none; }
