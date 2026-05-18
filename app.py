@@ -14,9 +14,14 @@ from PIL import Image
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-key-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messenger.db'
+_db_path = os.environ.get('DATABASE_PATH', '')
+if _db_path:
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_db_path}/messenger.db'
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messenger.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
+_data_path = os.environ.get('DATABASE_PATH', '')
+app.config['UPLOAD_FOLDER'] = os.path.join(_data_path, 'uploads') if _data_path else os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 db = SQLAlchemy(app)
@@ -852,4 +857,6 @@ def init_db():
 if __name__ == '__main__':
     with app.app_context():
         init_db()
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') != 'production'
+    socketio.run(app, debug=debug, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
