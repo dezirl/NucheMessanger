@@ -12,6 +12,11 @@ let selectedFile = null;
 // ── Socket events ─────────────────────────────────────────────────────────────
 
 socket.on('connect', () => {
+  // Show cache instantly on first load only
+  const cached = localStorage.getItem('flight_convs_cache');
+  if (cached) {
+    try { renderConvList(JSON.parse(cached)); } catch(e) {}
+  }
   loadConversations();
 });
 
@@ -90,16 +95,15 @@ socket.on('ticket_reply_notify', (data) => {
 
 // ── Conversations + Groups ────────────────────────────────────────────────────
 
-function loadConversations() {
-  // Show cached immediately
-  const cached = localStorage.getItem('flight_convs_cache');
-  if (cached) {
-    try {
-      renderConvList(JSON.parse(cached));
-    } catch(e) {}
-  }
+let _convLoadTimer = null;
+let _lastConvRender = '';
 
-  // Fetch fresh
+function loadConversations() {
+  clearTimeout(_convLoadTimer);
+  _convLoadTimer = setTimeout(_doLoadConversations, 120);
+}
+
+function _doLoadConversations() {
   Promise.all([
     fetch('/api/conversations').then(r => r.json()),
     fetch('/api/groups').then(r => r.json()),
@@ -116,6 +120,15 @@ function loadConversations() {
     }));
     const all = [...directItems, ...groupItems]
       .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+
+    const signature = JSON.stringify(all.map(x =>
+      x.type === 'direct'
+        ? `d${x.data.partner.id}:${x.data.last_message?.created_at || ''}:${x.data.unread_count}`
+        : `g${x.data.group.id}:${x.data.last_message?.created_at || ''}`
+    ));
+    if (signature === _lastConvRender) return;
+    _lastConvRender = signature;
+
     localStorage.setItem('flight_convs_cache', JSON.stringify(all));
     renderConvList(all);
   });
@@ -205,7 +218,7 @@ function openConversation(partnerId) {
   loadPartnerInfo(partnerId);
   loadMessages(partnerId, 1);
   mobileOpenChat();
-  loadConversations();
+  loadConversations(); // update active highlight
 }
 
 // ── Open group ────────────────────────────────────────────────────────────────
@@ -227,7 +240,7 @@ function openGroup(groupId) {
   loadGroupInfo(groupId);
   loadGroupMessages(groupId, 1);
   mobileOpenChat();
-  loadConversations();
+  loadConversations(); // update active highlight
 
   // Hide call buttons for groups
   document.getElementById('callAudioBtn').style.display = 'none';
@@ -355,7 +368,6 @@ function loadMessages(partnerId, page) {
       }
 
       currentPage = page;
-      loadConversations();
     });
 }
 
@@ -448,7 +460,6 @@ function sendMessage() {
       if (msg.error) return;
       appendMessage(msg);
       scrollToBottom();
-      loadConversations();
     });
 }
 
