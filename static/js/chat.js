@@ -43,6 +43,13 @@ socket.on('user_status', (data) => {
   loadConversations();
 });
 
+socket.on('new_conversation_notify', (msg) => {
+  loadConversations();
+  if (msg.sender_id !== currentPartnerId) {
+    showNotification(`Новое сообщение от ${msg.sender ? msg.sender.display_name : ''}`, null);
+  }
+});
+
 socket.on('ticket_reply_notify', (data) => {
   showNotification(`Ответ на тикет: ${data.subject}`, `/support/ticket/${data.ticket_id}`);
 });

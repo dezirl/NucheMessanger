@@ -382,6 +382,11 @@ def api_send_message():
 
     room = conv_room(uid, receiver_id)
     socketio.emit('new_message', msg.to_dict(), room=room)
+
+    # Уведомить получателя напрямую если он не в комнате
+    for sid in sids_for_user(receiver_id):
+        socketio.emit('new_conversation_notify', msg.to_dict(), room=sid)
+
     return jsonify(msg.to_dict())
 
 
