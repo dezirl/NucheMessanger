@@ -14,13 +14,19 @@ from PIL import Image
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-key-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messenger.db'
+_db_url = os.environ.get('DATABASE_URL', '')
+if _db_url:
+    _db_url = _db_url.replace('postgres://', 'postgresql+pg8000://', 1)
+    _db_url = _db_url.replace('postgresql://', 'postgresql+pg8000://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///messenger.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 online_users = {}  # sid -> user_id
@@ -848,8 +854,17 @@ def init_db():
         db.session.commit()
         print('[+] Admin created: zer0tune / zxcfriday15')
 
+# Вызывается и через gunicorn и через python app.py
+import time
+with app.app_context():
+    for _attempt in range(5):
+        try:
+            init_db()
+            break
+        except Exception as e:
+            print(f'[DB] attempt {_attempt+1} failed: {e}')
+            time.sleep(2)
 
 if __name__ == '__main__':
-    with app.app_context():
-        init_db()
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get('PORT', 5000))
+    socketio.run(app, debug=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)

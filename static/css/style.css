@@ -1007,6 +1007,10 @@ textarea { resize: vertical; }
   overflow: hidden;
 }
 .dropdown-menu.open { display: block; }
+.dropdown-up .dropdown-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 .dropdown-item {
   display: flex;
   align-items: center;

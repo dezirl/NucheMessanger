@@ -3,7 +3,10 @@ flask-socketio==5.3.6
 flask-sqlalchemy==3.1.1
 flask-login==0.6.3
 werkzeug==3.0.3
-pillow==10.3.0
+pillow==11.2.1
 python-engineio==4.9.1
 python-socketio==5.11.2
-eventlet==0.36.1
+gevent==24.11.1
+gevent-websocket==0.10.1
+gunicorn==23.0.0
+pg8000==1.31.2
