@@ -665,10 +665,12 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLight
 
 // ── Dropdown menu ─────────────────────────────────────────────────────────────
 
-const userMenuBtn = document.getElementById('userMenuBtn');
 const userMenu = document.getElementById('userMenu');
-if (userMenuBtn) {
-  userMenuBtn.addEventListener('click', (e) => {
+const sidebarFooter = document.getElementById('sidebarFooter');
+if (sidebarFooter && userMenu) {
+  sidebarFooter.addEventListener('click', (e) => {
+    // Don't toggle when clicking a menu item (let it navigate)
+    if (userMenu.contains(e.target)) return;
     e.stopPropagation();
     userMenu.classList.toggle('open');
   });

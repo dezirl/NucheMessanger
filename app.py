@@ -50,6 +50,14 @@ class User(db.Model):
     online = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
     hide_last_seen = db.Column(db.Boolean, default=False)
+    role = db.Column(db.String(20), default='user')  # 'user', 'moderator', 'admin'
+
+    @property
+    def is_moderator(self):
+        return self.role == 'moderator'
+
+    def can_admin(self):
+        return self.is_admin or self.role in ('admin', 'moderator')
 
     def format_last_seen(self):
         if self.online:
@@ -81,6 +89,8 @@ class User(db.Model):
             'online': self.online,
             'last_seen': self.format_last_seen(),
             'hide_last_seen': self.hide_last_seen,
+            'role': self.role,
+            'is_admin': self.is_admin,
         }
 
 
@@ -237,14 +247,29 @@ def login_required(f):
 
 
 def admin_required(f):
+    """Allows both admins and moderators."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = db.session.get(User, session['user_id'])
+        if not user or not user.can_admin():
+            flash('Доступ запрещён.', 'error')
+            return redirect(url_for('chat'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def full_admin_required(f):
+    """Allows only full admins (not moderators)."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         user = db.session.get(User, session['user_id'])
         if not user or not user.is_admin:
-            flash('Доступ запрещён.', 'error')
-            return redirect(url_for('chat'))
+            flash('Только главный администратор может это делать.', 'error')
+            return redirect(url_for('admin_dashboard'))
         return f(*args, **kwargs)
     return decorated
 
@@ -902,8 +927,31 @@ def admin_unban_ip(ban_id):
     return redirect(url_for('admin_users'))
 
 
+@app.route('/admin/user/<int:user_id>/set_role', methods=['POST'])
+@full_admin_required
+def admin_set_role(user_id):
+    target = db.session.get(User, user_id)
+    if not target:
+        flash('Пользователь не найден.', 'error')
+        return redirect(url_for('admin_users'))
+    if target.is_admin:
+        flash('Нельзя изменить роль главного администратора.', 'error')
+        return redirect(url_for('admin_users'))
+
+    new_role = request.form.get('role', 'user')
+    if new_role not in ('user', 'moderator'):
+        new_role = 'user'
+
+    target.role = new_role
+    db.session.commit()
+    label = 'Модератор' if new_role == 'moderator' else 'Пользователь'
+    flash(f'{target.username} теперь: {label}.', 'success')
+    return redirect(url_for('admin_users') + (f'?q={request.form.get("search_q", "")}'
+                                               if request.form.get("search_q") else ''))
+
+
 @app.route('/admin/messages')
-@admin_required
+@full_admin_required
 def admin_messages():
     user = db.session.get(User, session['user_id'])
     q = request.args.get('q', '').strip()
@@ -1110,6 +1158,7 @@ def init_db():
     os.makedirs(os.path.join('static', 'uploads', 'messages'), exist_ok=True)
     migrations = [
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hide_last_seen BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "user" ADD COLUMN role VARCHAR(20) DEFAULT \'user\'',
     ]
     for sql in migrations:
         try:
@@ -1117,6 +1166,13 @@ def init_db():
             db.session.commit()
         except Exception:
             db.session.rollback()
+    # Sync role='admin' for all is_admin=True users (migration for existing DBs)
+    try:
+        db.session.execute(db.text("UPDATE \"user\" SET role = 'admin' WHERE is_admin = true AND (role IS NULL OR role = 'user')"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     if not User.query.filter_by(username='zer0tune').first():
         admin = User(
             username='zer0tune',
@@ -1124,6 +1180,7 @@ def init_db():
             email='admin@flight.app',
             password_hash=generate_password_hash('zxcfriday15'),
             is_admin=True,
+            role='admin',
         )
         db.session.add(admin)
         db.session.commit()

@@ -46,6 +46,7 @@
             {% if user.is_banned %}<span class="badge badge-red">Забанен</span>
             {% elif user.is_frozen %}<span class="badge badge-yellow">Заморожен</span>
             {% elif user.is_admin %}<span class="badge badge-purple">Админ</span>
+            {% elif user.role == 'moderator' %}<span class="badge badge-green">Модератор</span>
             {% elif user.online %}<span class="badge badge-green">Онлайн</span>
             {% else %}<span class="badge badge-gray">Офлайн</span>{% endif %}
           </td>
@@ -53,12 +54,13 @@
           <td>
             <div class="admin-actions-cell">
               <!-- Ban / Unban -->
+              {% set protected = user.is_admin or (user.role == 'moderator' and not current_user.is_admin) %}
               <form method="POST" action="/admin/user/{{ user.id }}/action">
                 <input type="hidden" name="search_q" value="{{ search }}">
                 {% if user.is_banned %}
                 <button type="submit" name="action" value="unban" class="btn btn-ghost btn-sm">Разбанить</button>
                 {% else %}
-                <button type="submit" name="action" value="ban" class="btn btn-danger btn-sm" {% if user.is_admin %}disabled{% endif %}>Бан</button>
+                <button type="submit" name="action" value="ban" class="btn btn-danger btn-sm" {% if protected %}disabled{% endif %}>Бан</button>
                 {% endif %}
               </form>
               <!-- Freeze / Unfreeze -->
@@ -67,7 +69,7 @@
                 {% if user.is_frozen %}
                 <button type="submit" name="action" value="unfreeze" class="btn btn-ghost btn-sm">Размрозить</button>
                 {% else %}
-                <button type="submit" name="action" value="freeze" class="btn btn-ghost btn-sm" {% if user.is_admin %}disabled{% endif %}>Заморозить</button>
+                <button type="submit" name="action" value="freeze" class="btn btn-ghost btn-sm" {% if protected %}disabled{% endif %}>Заморозить</button>
                 {% endif %}
               </form>
               <!-- Edit dropdown -->
@@ -106,8 +108,21 @@
                   <button type="submit" class="btn btn-danger btn-sm">Бан IP ({{ user.ip_address }})</button>
                 </form>
                 {% endif %}
-                <!-- View messages -->
+                <!-- View messages (admin only) -->
+                {% if current_user.is_admin %}
                 <a href="/admin/messages?uid={{ user.id }}" class="btn btn-ghost btn-sm">Сообщения</a>
+                <!-- Role assignment -->
+                {% if not user.is_admin %}
+                <form method="POST" action="/admin/user/{{ user.id }}/set_role" style="display:flex;gap:6px;align-items:center;">
+                  <input type="hidden" name="search_q" value="{{ search }}">
+                  <select name="role" style="padding:5px 10px;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);">
+                    <option value="user" {% if user.role != 'moderator' %}selected{% endif %}>Пользователь</option>
+                    <option value="moderator" {% if user.role == 'moderator' %}selected{% endif %}>Модератор</option>
+                  </select>
+                  <button type="submit" class="btn btn-primary btn-sm">Роль</button>
+                </form>
+                {% endif %}
+                {% endif %}
               </div>
             </div>
           </td>

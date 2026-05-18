@@ -375,7 +375,13 @@ textarea { resize: vertical; }
   display: flex;
   align-items: center;
   gap: 10px;
+  cursor: pointer;
+  transition: background var(--transition);
+  border-radius: 0 0 0 0;
+  position: relative;
+  user-select: none;
 }
+.sidebar-footer:hover { background: var(--surface2); }
 .current-user-info { flex: 1; min-width: 0; }
 .current-user-info .name { font-weight: 600; font-size: 13px; }
 .current-user-info .username { color: var(--text-muted); font-size: 12px; }
