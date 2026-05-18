@@ -854,10 +854,10 @@ def init_db():
         db.session.commit()
         print('[+] Admin created: zer0tune / zxcfriday15')
 
+# Вызывается и через gunicorn и через python app.py
+with app.app_context():
+    init_db()
 
 if __name__ == '__main__':
-    with app.app_context():
-        init_db()
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') != 'production'
-    socketio.run(app, debug=debug, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
