@@ -48,6 +48,21 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ]
 };
 
@@ -177,6 +192,7 @@ async function acceptCall() {
   await peerConnection.setLocalDescription(answer);
 
   socket.emit('call_answer', { caller_id: data.caller_id, answer: answer });
+  socket.emit('call_accepted_by_me', { caller_id: data.caller_id });
 
   const callerInfo = { display_name: data.caller_name, avatar: data.caller_avatar };
   showActiveCallOverlay(callerInfo, data.call_type, 'Соединение...');
@@ -203,6 +219,12 @@ socket.on('ice_candidate', async (data) => {
   try {
     await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
   } catch (e) {}
+});
+
+socket.on('call_stop_ringing', () => {
+  stopRingtone();
+  document.getElementById('incomingCallOverlay').classList.remove('active');
+  incomingCallData = null;
 });
 
 socket.on('call_rejected', () => {

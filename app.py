@@ -134,6 +134,56 @@ class SupportMessage(db.Model):
     sender = db.relationship('User')
 
 
+class GroupChat(db.Model):
+    __tablename__ = 'group_chat'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, default='')
+    avatar = db.Column(db.String(256), default='')
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    creator = db.relationship('User', foreign_keys=[created_by])
+    members = db.relationship('GroupMember', backref='group', lazy='dynamic')
+
+
+class GroupMember(db.Model):
+    __tablename__ = 'group_member'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group_chat.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    role = db.Column(db.String(20), default='member')
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User')
+
+
+class GroupMessage(db.Model):
+    __tablename__ = 'group_message'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group_chat.id'), nullable=False)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, default='')
+    image_path = db.Column(db.String(256), default='')
+    message_type = db.Column(db.String(20), default='text')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    sender = db.relationship('User')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'group_id': self.group_id,
+            'sender_id': self.sender_id,
+            'content': self.content,
+            'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
+            'message_type': self.message_type,
+            'created_at': self.created_at.strftime('%H:%M'),
+            'created_date': self.created_at.strftime('%d.%m.%Y'),
+            'sender': self.sender.to_dict() if self.sender else None,
+        }
+
+
 class BannedIP(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     ip_address = db.Column(db.String(45), unique=True, nullable=False)
@@ -434,6 +484,156 @@ def api_user(user_id):
     if not user:
         return jsonify({'error': 'not found'}), 404
     return jsonify(user.to_dict())
+
+
+# ── Groups ────────────────────────────────────────────────────────────────────
+
+@app.route('/api/groups')
+@login_required
+def api_groups():
+    uid = session['user_id']
+    memberships = GroupMember.query.filter_by(user_id=uid).all()
+    result = []
+    for m in memberships:
+        group = db.session.get(GroupChat, m.group_id)
+        if not group:
+            continue
+        last_msg = GroupMessage.query.filter_by(group_id=group.id).order_by(GroupMessage.created_at.desc()).first()
+        result.append({
+            'group': {
+                'id': group.id,
+                'name': group.name,
+                'description': group.description,
+                'avatar': url_for('static', filename=group.avatar) if group.avatar else '',
+                'member_count': group.members.count(),
+            },
+            'last_message': last_msg.to_dict() if last_msg else None,
+        })
+    result.sort(key=lambda x: (x['last_message']['created_date'] + x['last_message']['created_at']) if x['last_message'] else '', reverse=True)
+    return jsonify(result)
+
+
+@app.route('/api/groups/create', methods=['POST'])
+@login_required
+def api_create_group():
+    uid = session['user_id']
+    name = request.form.get('name', '').strip()
+    if not name or len(name) > 100:
+        return jsonify({'error': 'invalid name'}), 400
+
+    group = GroupChat(name=name, created_by=uid)
+    db.session.add(group)
+    db.session.flush()
+
+    db.session.add(GroupMember(group_id=group.id, user_id=uid, role='admin'))
+
+    for mid_str in request.form.getlist('member_ids'):
+        try:
+            mid = int(mid_str)
+            if mid != uid:
+                db.session.add(GroupMember(group_id=group.id, user_id=mid, role='member'))
+        except (ValueError, TypeError):
+            pass
+
+    db.session.commit()
+    return jsonify({'id': group.id, 'name': group.name})
+
+
+@app.route('/api/groups/<int:group_id>/info')
+@login_required
+def api_group_info(group_id):
+    uid = session['user_id']
+    group = db.session.get(GroupChat, group_id)
+    if not group:
+        return jsonify({'error': 'not found'}), 404
+    if not GroupMember.query.filter_by(group_id=group_id, user_id=uid).first():
+        return jsonify({'error': 'not a member'}), 403
+
+    members = GroupMember.query.filter_by(group_id=group_id).all()
+    return jsonify({
+        'id': group.id,
+        'name': group.name,
+        'description': group.description,
+        'avatar': url_for('static', filename=group.avatar) if group.avatar else '',
+        'created_by': group.created_by,
+        'member_count': len(members),
+        'members': [{'user': m.user.to_dict(), 'role': m.role} for m in members],
+    })
+
+
+@app.route('/api/groups/<int:group_id>/messages')
+@login_required
+def api_group_messages(group_id):
+    uid = session['user_id']
+    if not GroupMember.query.filter_by(group_id=group_id, user_id=uid).first():
+        return jsonify({'error': 'not a member'}), 403
+
+    page = request.args.get('page', 1, type=int)
+    msgs = GroupMessage.query.filter_by(group_id=group_id).order_by(GroupMessage.created_at.desc()).paginate(page=page, per_page=50, error_out=False)
+
+    return jsonify({
+        'messages': [m.to_dict() for m in reversed(msgs.items)],
+        'has_more': msgs.has_next,
+    })
+
+
+@app.route('/api/groups/<int:group_id>/send', methods=['POST'])
+@login_required
+def api_send_group_message(group_id):
+    uid = session['user_id']
+    if not GroupMember.query.filter_by(group_id=group_id, user_id=uid).first():
+        return jsonify({'error': 'not a member'}), 403
+
+    content = request.form.get('content', '').strip()
+    image_path = ''
+    msg_type = 'text'
+
+    if 'image' in request.files:
+        f = request.files['image']
+        if f and f.filename and allowed_file(f.filename):
+            compressed = compress_image(f)
+            fname = f"{uuid.uuid4().hex}.jpg"
+            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, 'wb') as fp:
+                fp.write(compressed.read())
+            image_path = f"uploads/messages/{fname}"
+            msg_type = 'mixed' if content else 'image'
+
+    if not content and not image_path:
+        return jsonify({'error': 'empty message'}), 400
+
+    msg = GroupMessage(group_id=group_id, sender_id=uid,
+                       content=content, image_path=image_path, message_type=msg_type)
+    db.session.add(msg)
+    db.session.commit()
+
+    socketio.emit('group_message', msg.to_dict(), room=f'group_{group_id}')
+    return jsonify(msg.to_dict())
+
+
+@app.route('/api/groups/<int:group_id>/add_member', methods=['POST'])
+@login_required
+def api_group_add_member(group_id):
+    uid = session['user_id']
+    me = GroupMember.query.filter_by(group_id=group_id, user_id=uid).first()
+    if not me or me.role != 'admin':
+        return jsonify({'error': 'not authorized'}), 403
+
+    target_id = request.form.get('user_id', type=int)
+    if not target_id:
+        return jsonify({'error': 'no user_id'}), 400
+
+    if GroupMember.query.filter_by(group_id=group_id, user_id=target_id).first():
+        return jsonify({'error': 'already member'}), 400
+
+    db.session.add(GroupMember(group_id=group_id, user_id=target_id, role='member'))
+    db.session.commit()
+
+    for sid in sids_for_user(target_id):
+        socketio.emit('added_to_group', {'group_id': group_id}, room=sid)
+
+    return jsonify({'ok': True})
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
@@ -752,6 +952,9 @@ def on_connect():
     db.session.commit()
     if user.is_admin:
         join_room('admin_room')
+    # Auto-join group rooms
+    for m in GroupMember.query.filter_by(user_id=uid).all():
+        join_room(f'group_{m.group_id}')
     emit('user_status', {'user_id': uid, 'online': True}, broadcast=True)
 
 
@@ -807,6 +1010,16 @@ def on_join_ticket(data):
         join_room(f'ticket_{tid}')
 
 
+@socketio.on('join_group')
+def on_join_group(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    gid = data.get('group_id')
+    if gid and GroupMember.query.filter_by(group_id=gid, user_id=uid).first():
+        join_room(f'group_{gid}')
+
+
 # ── WebRTC signaling ──────────────────────────────────────────────────────────
 
 def sids_for_user(uid):
@@ -837,6 +1050,20 @@ def on_call_answer(data):
     uid = session['user_id']
     for sid in sids_for_user(data.get('caller_id')):
         emit('call_answered', {'answerer_id': uid, 'answer': data.get('answer')}, room=sid)
+    # Stop ringing on all other devices of the answering user
+    for sid in sids_for_user(uid):
+        if sid != request.sid:
+            emit('call_stop_ringing', {}, room=sid)
+
+
+@socketio.on('call_accepted_by_me')
+def on_call_accepted_by_me(data):
+    if 'user_id' not in session:
+        return
+    uid = session['user_id']
+    for sid in sids_for_user(uid):
+        if sid != request.sid:
+            emit('call_stop_ringing', {}, room=sid)
 
 
 @socketio.on('ice_candidate')
@@ -872,7 +1099,6 @@ def init_db():
     db.create_all()
     os.makedirs(os.path.join('static', 'uploads', 'avatars'), exist_ok=True)
     os.makedirs(os.path.join('static', 'uploads', 'messages'), exist_ok=True)
-    # Добавляем новые колонки если их нет (для уже существующих БД)
     migrations = [
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hide_last_seen BOOLEAN DEFAULT FALSE',
     ]
@@ -886,7 +1112,7 @@ def init_db():
         admin = User(
             username='zer0tune',
             display_name='Admin',
-            email='admin@nuchebazar.net',
+            email='admin@flight.app',
             password_hash=generate_password_hash('zxcfriday15'),
             is_admin=True,
         )
