@@ -872,6 +872,16 @@ def init_db():
     db.create_all()
     os.makedirs(os.path.join('static', 'uploads', 'avatars'), exist_ok=True)
     os.makedirs(os.path.join('static', 'uploads', 'messages'), exist_ok=True)
+    # Добавляем новые колонки если их нет (для уже существующих БД)
+    migrations = [
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hide_last_seen BOOLEAN DEFAULT FALSE',
+    ]
+    for sql in migrations:
+        try:
+            db.session.execute(db.text(sql))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     if not User.query.filter_by(username='zer0tune').first():
         admin = User(
             username='zer0tune',
