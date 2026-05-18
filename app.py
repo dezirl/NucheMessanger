@@ -1082,6 +1082,10 @@ def on_call_reject(data):
     uid = session['user_id']
     for sid in sids_for_user(data.get('caller_id')):
         emit('call_rejected', {'user_id': uid}, room=sid)
+    # Stop ringing on all other devices of the rejecting user
+    for sid in sids_for_user(uid):
+        if sid != request.sid:
+            emit('call_stop_ringing', {}, room=sid)
 
 
 @socketio.on('call_end')
@@ -1089,8 +1093,13 @@ def on_call_end(data):
     if 'user_id' not in session:
         return
     uid = session['user_id']
-    for sid in sids_for_user(data.get('target_id')):
+    target_id = data.get('target_id')
+    for sid in sids_for_user(target_id):
         emit('call_ended', {'user_id': uid}, room=sid)
+    # Also stop ringing on all other devices of caller (in case they called from multiple)
+    for sid in sids_for_user(uid):
+        if sid != request.sid:
+            emit('call_stop_ringing', {}, room=sid)
 
 
 # ── Init ──────────────────────────────────────────────────────────────────────
