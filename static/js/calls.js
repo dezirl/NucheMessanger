@@ -43,6 +43,8 @@ async function startCall(callType) {
   peerConnection.ontrack = (e) => {
     if (callType === 'video') {
       document.getElementById('remoteVideo').srcObject = e.streams[0];
+    } else {
+      document.getElementById('remoteAudio').srcObject = e.streams[0];
     }
     document.getElementById('activeCallStatus').textContent = 'Соединено';
     startCallTimer();
@@ -119,6 +121,8 @@ async function acceptCall() {
   peerConnection.ontrack = (e) => {
     if (data.call_type === 'video') {
       document.getElementById('remoteVideo').srcObject = e.streams[0];
+    } else {
+      document.getElementById('remoteAudio').srcObject = e.streams[0];
     }
     document.getElementById('activeCallStatus').textContent = 'Соединено';
     startCallTimer();
@@ -186,8 +190,10 @@ function cleanupCall() {
 
   const rv = document.getElementById('remoteVideo');
   const lv = document.getElementById('localVideo');
+  const ra = document.getElementById('remoteAudio');
   if (rv) rv.srcObject = null;
   if (lv) lv.srcObject = null;
+  if (ra) ra.srcObject = null;
 
   document.getElementById('activeCallOverlay').classList.remove('active');
   document.getElementById('incomingCallOverlay').classList.remove('active');
