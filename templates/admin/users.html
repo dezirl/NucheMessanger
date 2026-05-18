@@ -1,0 +1,165 @@
+{% extends 'admin/base.html' %}
+{% block title %}Пользователи — Админ{% endblock %}
+{% block admin_content %}
+<div class="admin-top">
+  <h1>Пользователи</h1>
+</div>
+
+<form method="GET" class="search-bar">
+  <input type="text" name="q" value="{{ search }}" placeholder="Поиск по имени, юзернейму, email, IP...">
+  <button type="submit" class="btn btn-primary">Найти</button>
+  {% if search %}<a href="/admin/users" class="btn btn-ghost">Сбросить</a>{% endif %}
+</form>
+
+<div class="card" style="margin-bottom:24px;">
+  <div style="overflow-x:auto;">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Пользователь</th>
+          <th>Email</th>
+          <th>IP</th>
+          <th>Статус</th>
+          <th>Регистрация</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              {% if user.avatar %}
+              <img class="avatar avatar-sm" src="{{ url_for('static', filename=user.avatar) }}" alt="">
+              {% else %}
+              <div class="avatar-placeholder sm">{{ user.display_name[0].upper() }}</div>
+              {% endif %}
+              <div>
+                <div style="font-weight:600;">{{ user.display_name }}</div>
+                <div style="font-size:12px;color:var(--text-muted);">@{{ user.username }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="text-muted" style="font-size:13px;">{{ user.email }}</td>
+          <td><code style="font-size:12px;color:var(--text-muted);">{{ user.ip_address or '—' }}</code></td>
+          <td>
+            {% if user.is_banned %}<span class="badge badge-red">Забанен</span>
+            {% elif user.is_frozen %}<span class="badge badge-yellow">Заморожен</span>
+            {% elif user.is_admin %}<span class="badge badge-purple">Админ</span>
+            {% elif user.online %}<span class="badge badge-green">Онлайн</span>
+            {% else %}<span class="badge badge-gray">Офлайн</span>{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:13px;">{{ user.created_at.strftime('%d.%m.%Y') }}</td>
+          <td>
+            <div class="admin-actions-cell">
+              <!-- Ban / Unban -->
+              <form method="POST" action="/admin/user/{{ user.id }}/action">
+                <input type="hidden" name="search_q" value="{{ search }}">
+                {% if user.is_banned %}
+                <button type="submit" name="action" value="unban" class="btn btn-ghost btn-sm">Разбанить</button>
+                {% else %}
+                <button type="submit" name="action" value="ban" class="btn btn-danger btn-sm" {% if user.is_admin %}disabled{% endif %}>Бан</button>
+                {% endif %}
+              </form>
+              <!-- Freeze / Unfreeze -->
+              <form method="POST" action="/admin/user/{{ user.id }}/action">
+                <input type="hidden" name="search_q" value="{{ search }}">
+                {% if user.is_frozen %}
+                <button type="submit" name="action" value="unfreeze" class="btn btn-ghost btn-sm">Размрозить</button>
+                {% else %}
+                <button type="submit" name="action" value="freeze" class="btn btn-ghost btn-sm" {% if user.is_admin %}disabled{% endif %}>Заморозить</button>
+                {% endif %}
+              </form>
+              <!-- Edit dropdown -->
+              <button class="btn btn-ghost btn-sm" onclick="toggleUserEdit({{ user.id }})">Изменить</button>
+            </div>
+            <!-- Edit panel -->
+            <div id="edit_{{ user.id }}" style="display:none;margin-top:10px;padding:14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+              <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                <!-- Change display name -->
+                <form method="POST" action="/admin/user/{{ user.id }}/action" style="display:flex;gap:6px;align-items:center;">
+                  <input type="hidden" name="action" value="change_name">
+                  <input type="hidden" name="search_q" value="{{ search }}">
+                  <input type="text" name="display_name" placeholder="Новое имя" style="width:160px;padding:6px 10px;font-size:13px;">
+                  <button type="submit" class="btn btn-primary btn-sm">Имя</button>
+                </form>
+                <!-- Change username -->
+                <form method="POST" action="/admin/user/{{ user.id }}/action" style="display:flex;gap:6px;align-items:center;">
+                  <input type="hidden" name="action" value="change_username">
+                  <input type="hidden" name="search_q" value="{{ search }}">
+                  <input type="text" name="new_username" placeholder="Новый @username" style="width:160px;padding:6px 10px;font-size:13px;">
+                  <button type="submit" class="btn btn-primary btn-sm">Username</button>
+                </form>
+                <!-- Change avatar -->
+                <form method="POST" action="/admin/user/{{ user.id }}/action" enctype="multipart/form-data" style="display:flex;gap:6px;align-items:center;">
+                  <input type="hidden" name="action" value="change_avatar">
+                  <input type="hidden" name="search_q" value="{{ search }}">
+                  <input type="file" name="avatar" accept="image/*" style="font-size:12px;width:200px;">
+                  <button type="submit" class="btn btn-primary btn-sm">Аватар</button>
+                </form>
+                <!-- Ban IP -->
+                {% if user.ip_address %}
+                <form method="POST" action="/admin/user/{{ user.id }}/action" style="display:flex;gap:6px;align-items:center;">
+                  <input type="hidden" name="action" value="ban_ip">
+                  <input type="hidden" name="ip_to_ban" value="{{ user.ip_address }}">
+                  <input type="hidden" name="search_q" value="{{ search }}">
+                  <button type="submit" class="btn btn-danger btn-sm">Бан IP ({{ user.ip_address }})</button>
+                </form>
+                {% endif %}
+                <!-- View messages -->
+                <a href="/admin/messages?uid={{ user.id }}" class="btn btn-ghost btn-sm">Сообщения</a>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Banned IPs -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Заблокированные IP</span>
+  </div>
+  <div class="card-body">
+    <form method="POST" action="/admin/ban_ip" style="display:flex;gap:8px;margin-bottom:16px;">
+      <input type="text" name="ip" placeholder="IP адрес (напр. 1.2.3.4)" style="flex:1;">
+      <input type="text" name="reason" placeholder="Причина" style="flex:2;">
+      <button type="submit" class="btn btn-danger">Заблокировать</button>
+    </form>
+
+    {% if banned_ips %}
+    <table class="table">
+      <thead>
+        <tr><th>IP</th><th>Причина</th><th>Дата</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for ban in banned_ips %}
+        <tr>
+          <td><code style="font-size:13px;">{{ ban.ip_address }}</code></td>
+          <td class="text-muted">{{ ban.reason or '—' }}</td>
+          <td class="text-muted" style="font-size:13px;">{{ ban.created_at.strftime('%d.%m.%Y') }}</td>
+          <td>
+            <form method="POST" action="/admin/unban_ip/{{ ban.id }}">
+              <button type="submit" class="btn btn-ghost btn-sm">Разблокировать</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted" style="font-size:13px;">Заблокированных IP нет</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function toggleUserEdit(id) {
+  const el = document.getElementById('edit_' + id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+</script>
+{% endblock %}

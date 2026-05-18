@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %}{{ profile_user.display_name }} — NucheMessenger{% endblock %}
+{% block body %}
+<nav class="top-nav">
+  <a href="/chat" class="top-nav-brand" style="text-decoration:none;color:var(--text)">
+    <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></div>
+    NucheMessenger
+  </a>
+  <div class="top-nav-links">
+    <a href="/chat" class="nav-link">Чат</a>
+    <a href="/support" class="nav-link">Поддержка</a>
+    {% if current_user.is_admin %}<a href="/admin" class="nav-link">Админ</a>{% endif %}
+  </div>
+  <div class="top-nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()">
+      <svg class="theme-icon-light" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      <svg class="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+    </button>
+    <a href="/logout" class="btn btn-ghost btn-sm">Выйти</a>
+  </div>
+</nav>
+
+<div class="profile-page">
+  {% if get_flashed_messages() %}
+  <div class="flash-messages">
+    {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="profile-header">
+    <div class="avatar-wrap">
+      {% if profile_user.avatar %}
+      <img class="avatar avatar-xl" src="{{ url_for('static', filename=profile_user.avatar) }}" alt="">
+      {% else %}
+      <div class="avatar-placeholder lg">{{ profile_user.display_name[0].upper() }}</div>
+      {% endif %}
+      {% if profile_user.online %}<span class="online-dot" style="bottom:4px;right:4px;width:16px;height:16px;border-width:3px;"></span>{% endif %}
+    </div>
+    <div class="profile-info">
+      <div class="profile-display-name">
+        {{ profile_user.display_name }}
+        {% if profile_user.is_admin %}
+        <span class="badge badge-purple" style="font-size:11px;vertical-align:middle;">Admin</span>
+        {% endif %}
+      </div>
+      <div class="profile-username">@{{ profile_user.username }}</div>
+      {% if profile_user.bio %}
+      <div class="profile-bio">{{ profile_user.bio }}</div>
+      {% endif %}
+      <div class="profile-stats">
+        <div class="profile-stat">
+          <span>Статус: </span>
+          {% if profile_user.online %}
+          <strong style="color:var(--online)">онлайн</strong>
+          {% else %}
+          <strong>был(а) {{ profile_user.last_seen.strftime('%d.%m.%Y') }}</strong>
+          {% endif %}
+        </div>
+        <div class="profile-stat">
+          Регистрация: <strong>{{ profile_user.created_at.strftime('%d.%m.%Y') }}</strong>
+        </div>
+      </div>
+      <div class="profile-actions">
+        {% if profile_user.id != current_user.id %}
+        <a href="/chat" class="btn btn-primary" onclick="sessionStorage.setItem('openChat', {{ profile_user.id }})">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+          Написать
+        </a>
+        {% else %}
+        <a href="/profile/edit" class="btn btn-ghost">
+          Редактировать профиль
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// If coming from "Написать" link
+const openChatId = sessionStorage.getItem('openChat');
+if (openChatId) {
+  sessionStorage.removeItem('openChat');
+  window.location.href = '/chat';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends 'admin/base.html' %}
+{% block title %}Сообщения — Админ{% endblock %}
+{% block admin_content %}
+<div class="admin-top">
+  <h1>Просмотр сообщений</h1>
+</div>
+
+<form method="GET" class="search-bar">
+  <input type="text" name="q" value="{{ search }}" placeholder="Поиск по имени пользователя...">
+  <button type="submit" class="btn btn-primary">Найти</button>
+  {% if search %}<a href="/admin/messages" class="btn btn-ghost">Все сообщения</a>{% endif %}
+</form>
+
+<div class="card">
+  <div style="overflow-x:auto;">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>От</th>
+          <th>Кому</th>
+          <th>Сообщение</th>
+          <th>Тип</th>
+          <th>Дата</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for msg in messages %}
+        <tr>
+          <td>
+            <a href="/admin/users?q={{ msg.sender.username }}" style="font-weight:600;">{{ msg.sender.display_name if msg.sender else '?' }}</a>
+            <div style="font-size:11px;color:var(--text-muted);">@{{ msg.sender.username if msg.sender else '—' }}</div>
+          </td>
+          <td>
+            <a href="/admin/users?q={{ msg.receiver.username }}" style="font-weight:600;">{{ msg.receiver.display_name if msg.receiver else '?' }}</a>
+            <div style="font-size:11px;color:var(--text-muted);">@{{ msg.receiver.username if msg.receiver else '—' }}</div>
+          </td>
+          <td style="max-width:400px;">
+            {% if msg.image_path %}
+            <img src="{{ url_for('static', filename=msg.image_path) }}" style="height:48px;border-radius:6px;display:block;margin-bottom:4px;" onclick="this.style.height=this.style.height==='auto'?'48px':'auto'" title="Нажмите для увеличения">
+            {% endif %}
+            {% if msg.content %}
+            <div style="font-size:13px;word-break:break-word;">{{ msg.content[:200] }}{% if msg.content|length > 200 %}...{% endif %}</div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge {% if msg.message_type == 'image' %}badge-purple{% elif msg.message_type == 'mixed' %}badge-green{% else %}badge-gray{% endif %}">
+              {{ 'Фото' if msg.message_type == 'image' else ('Фото+текст' if msg.message_type == 'mixed' else 'Текст') }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:13px;white-space:nowrap;">{{ msg.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+        {% if not messages %}
+        <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);">Нет сообщений</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

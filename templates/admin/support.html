@@ -1,0 +1,67 @@
+{% extends 'admin/base.html' %}
+{% block title %}Поддержка — Админ{% endblock %}
+{% block admin_content %}
+<div class="admin-top">
+  <h1>Обращения в поддержку</h1>
+</div>
+
+<div style="display:flex;gap:8px;margin-bottom:20px;">
+  <a href="/admin/support?status=open" class="btn {% if status_filter == 'open' %}btn-primary{% else %}btn-ghost{% endif %}">Открытые</a>
+  <a href="/admin/support?status=in_progress" class="btn {% if status_filter == 'in_progress' %}btn-primary{% else %}btn-ghost{% endif %}">В работе</a>
+  <a href="/admin/support?status=closed" class="btn {% if status_filter == 'closed' %}btn-primary{% else %}btn-ghost{% endif %}">Закрытые</a>
+</div>
+
+<div class="card">
+  <div style="overflow-x:auto;">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Пользователь</th>
+          <th>Тема</th>
+          <th>Статус</th>
+          <th>Дата</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ticket in tickets %}
+        <tr>
+          <td class="text-muted">#{{ ticket.id }}</td>
+          <td>
+            <div style="font-weight:600;">{{ ticket.user.display_name }}</div>
+            <div style="font-size:12px;color:var(--text-muted);">@{{ ticket.user.username }}</div>
+          </td>
+          <td style="max-width:300px;">{{ ticket.subject }}</td>
+          <td>
+            <span class="badge {% if ticket.status == 'open' %}badge-yellow{% elif ticket.status == 'closed' %}badge-gray{% else %}badge-purple{% endif %}">
+              {{ 'Открыт' if ticket.status == 'open' else ('Закрыт' if ticket.status == 'closed' else 'В работе') }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:13px;">{{ ticket.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>
+            <a href="/support/ticket/{{ ticket.id }}" class="btn btn-primary btn-sm">Открыть</a>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not tickets %}
+        <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted);">Тикетов нет</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const socket = io();
+socket.on('new_support_ticket', (data) => {
+  const note = document.createElement('div');
+  note.style.cssText = 'position:fixed;top:20px;right:20px;background:var(--accent);color:#fff;padding:14px 18px;border-radius:10px;font-size:13px;z-index:9999;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+  note.innerHTML = `<strong>Новый тикет!</strong><br>${data.user.display_name}: ${data.subject}`;
+  note.onclick = () => { window.location.href = '/support/ticket/' + data.ticket_id; };
+  document.body.appendChild(note);
+  setTimeout(() => note.remove(), 8000);
+});
+</script>
+{% endblock %}

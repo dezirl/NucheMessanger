@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}NucheMessenger{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+{% block body %}{% endblock %}
+
+<script>
+(function() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+})();
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  document.querySelectorAll('.theme-icon-dark').forEach(el => el.style.display = next === 'dark' ? 'none' : 'block');
+  document.querySelectorAll('.theme-icon-light').forEach(el => el.style.display = next === 'light' ? 'none' : 'block');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const theme = localStorage.getItem('theme') || 'dark';
+  document.querySelectorAll('.theme-icon-dark').forEach(el => el.style.display = theme === 'dark' ? 'none' : 'block');
+  document.querySelectorAll('.theme-icon-light').forEach(el => el.style.display = theme === 'light' ? 'none' : 'block');
+});
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
