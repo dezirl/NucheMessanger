@@ -126,6 +126,7 @@ function startVoiceRecord() {
     mediaRecorder.start();
     document.getElementById('voiceRecordingIndicator').classList.add('active');
     document.getElementById('voiceBtn').classList.add('recording');
+    document.getElementById('voiceRecTimer').textContent = '0:00';
     voiceTimerInterval = setInterval(() => {
       voiceSeconds++;
       document.getElementById('voiceRecTimer').textContent = fmtTime(voiceSeconds);

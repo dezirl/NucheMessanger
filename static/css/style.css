@@ -1681,10 +1681,27 @@ body.scrollable-page {
   color: var(--danger);
   font-size: 13px;
   font-weight: 600;
-  animation: pulse 1.2s ease infinite;
 }
 .voice-recording-indicator.active { display: flex; }
-.voice-rec-dot { width: 8px; height: 8px; background: var(--danger); border-radius: 50%; }
+.voice-rec-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--danger);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: voiceDotBlink 1s ease-in-out infinite;
+}
+@keyframes voiceDotBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.25; transform: scale(0.8); }
+}
+#voiceRecTimer {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+  min-width: 38px;
+}
 #voiceBtn.recording { color: var(--danger); background: var(--danger-dim); }
 
 /* ── Scroll to bottom btn ── */
