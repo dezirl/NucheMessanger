@@ -28,7 +28,8 @@ app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp3', 'ogg', 'webm', 'wav', 'm4a'}
+ALLOWED_AUDIO = {'mp3', 'ogg', 'webm', 'wav', 'm4a'}
 online_users = {}  # sid -> user_id
 stream_sessions = {}  # channel_id -> streamer_sid
 
@@ -101,9 +102,14 @@ class Message(db.Model):
     receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     content = db.Column(db.Text, default='')
     image_path = db.Column(db.String(256), default='')
+    audio_path = db.Column(db.String(256), default='')
     message_type = db.Column(db.String(20), default='text')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
+    is_edited = db.Column(db.Boolean, default=False)
+    deleted_for_sender = db.Column(db.Boolean, default=False)
+    deleted_for_receiver = db.Column(db.Boolean, default=False)
+    deleted_for_all = db.Column(db.Boolean, default=False)
 
     sender = db.relationship('User', foreign_keys=[sender_id])
     receiver = db.relationship('User', foreign_keys=[receiver_id])
@@ -115,10 +121,13 @@ class Message(db.Model):
             'receiver_id': self.receiver_id,
             'content': self.content,
             'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
+            'audio_url': url_for('static', filename=self.audio_path) if self.audio_path else '',
             'message_type': self.message_type,
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
             'is_read': self.is_read,
+            'is_edited': self.is_edited,
+            'deleted_for_all': self.deleted_for_all,
             'sender': self.sender.to_dict() if self.sender else None,
         }
 
@@ -176,8 +185,11 @@ class GroupMessage(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     content = db.Column(db.Text, default='')
     image_path = db.Column(db.String(256), default='')
+    audio_path = db.Column(db.String(256), default='')
     message_type = db.Column(db.String(20), default='text')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_edited = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(db.Boolean, default=False)
 
     sender = db.relationship('User')
 
@@ -188,9 +200,12 @@ class GroupMessage(db.Model):
             'sender_id': self.sender_id,
             'content': self.content,
             'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
+            'audio_url': url_for('static', filename=self.audio_path) if self.audio_path else '',
             'message_type': self.message_type,
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
+            'is_edited': self.is_edited,
+            'is_deleted': self.is_deleted,
             'sender': self.sender.to_dict() if self.sender else None,
         }
 
@@ -247,6 +262,11 @@ class ChannelPost(db.Model):
     message_type = db.Column(db.String(20), default='text')
     views = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_edited = db.Column(db.Boolean, default=False)
+    comment_count = db.Column(db.Integer, default=0)
+
+    comments = db.relationship('PostComment', backref='post', lazy='dynamic',
+                                order_by='PostComment.created_at')
 
     def to_dict(self):
         return {
@@ -258,7 +278,40 @@ class ChannelPost(db.Model):
             'views': self.views,
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
+            'is_edited': self.is_edited,
+            'comment_count': self.comment_count,
         }
+
+
+class PostComment(db.Model):
+    __tablename__ = 'post_comment'
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('channel_post.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'post_id': self.post_id,
+            'user_id': self.user_id,
+            'content': self.content,
+            'created_at': self.created_at.strftime('%H:%M %d.%m.%Y'),
+            'user': self.user.to_dict() if self.user else None,
+        }
+
+
+class PinnedChat(db.Model):
+    __tablename__ = 'pinned_chat'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    chat_type = db.Column(db.String(20), nullable=False)
+    target_id = db.Column(db.Integer, nullable=False)
+    pinned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('user_id', 'chat_type', 'target_id'),)
 
 
 class BannedIP(db.Model):
@@ -501,8 +554,17 @@ def api_messages(partner_id):
     Message.query.filter_by(sender_id=partner_id, receiver_id=uid, is_read=False).update({'is_read': True})
     db.session.commit()
 
+    def visible(m):
+        if m.deleted_for_all:
+            return False
+        if m.sender_id == uid and m.deleted_for_sender:
+            return False
+        if m.receiver_id == uid and m.deleted_for_receiver:
+            return False
+        return True
+
     return jsonify({
-        'messages': [m.to_dict() for m in reversed(msgs.items)],
+        'messages': [m.to_dict() for m in reversed(msgs.items) if visible(m)],
         'has_more': msgs.has_next,
     })
 
@@ -522,25 +584,46 @@ def api_send_message():
         return jsonify({'error': 'user not found'}), 404
 
     image_path = ''
+    audio_path = ''
     msg_type = 'text'
 
     if 'image' in request.files:
         f = request.files['image']
         if f and f.filename and allowed_file(f.filename):
-            compressed = compress_image(f)
-            fname = f"{uuid.uuid4().hex}.jpg"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, 'wb') as fp:
-                fp.write(compressed.read())
-            image_path = f"uploads/messages/{fname}"
-            msg_type = 'mixed' if content else 'image'
+            ext = f.filename.rsplit('.', 1)[1].lower()
+            if ext in ALLOWED_AUDIO:
+                fname = f"{uuid.uuid4().hex}.{ext}"
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                f.save(fpath)
+                audio_path = f"uploads/audio/{fname}"
+                msg_type = 'voice' if request.form.get('is_voice') else 'audio'
+            else:
+                compressed = compress_image(f)
+                fname = f"{uuid.uuid4().hex}.jpg"
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                with open(fpath, 'wb') as fp:
+                    fp.write(compressed.read())
+                image_path = f"uploads/messages/{fname}"
+                msg_type = 'mixed' if content else 'image'
 
-    if not content and not image_path:
+    if 'audio' in request.files:
+        f = request.files['audio']
+        if f and f.filename:
+            ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'webm'
+            fname = f"{uuid.uuid4().hex}.{ext}"
+            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            f.save(fpath)
+            audio_path = f"uploads/audio/{fname}"
+            msg_type = 'voice' if request.form.get('is_voice') else 'audio'
+
+    if not content and not image_path and not audio_path:
         return jsonify({'error': 'empty message'}), 400
 
     msg = Message(sender_id=uid, receiver_id=receiver_id,
-                  content=content, image_path=image_path, message_type=msg_type)
+                  content=content, image_path=image_path, audio_path=audio_path, message_type=msg_type)
     db.session.add(msg)
     db.session.commit()
 
@@ -676,7 +759,7 @@ def api_group_messages(group_id):
     msgs = GroupMessage.query.filter_by(group_id=group_id).order_by(GroupMessage.created_at.desc()).paginate(page=page, per_page=50, error_out=False)
 
     return jsonify({
-        'messages': [m.to_dict() for m in reversed(msgs.items)],
+        'messages': [m.to_dict() for m in reversed(msgs.items) if not m.is_deleted],
         'has_more': msgs.has_next,
     })
 
@@ -690,30 +773,159 @@ def api_send_group_message(group_id):
 
     content = request.form.get('content', '').strip()
     image_path = ''
+    audio_path = ''
     msg_type = 'text'
 
     if 'image' in request.files:
         f = request.files['image']
         if f and f.filename and allowed_file(f.filename):
-            compressed = compress_image(f)
-            fname = f"{uuid.uuid4().hex}.jpg"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, 'wb') as fp:
-                fp.write(compressed.read())
-            image_path = f"uploads/messages/{fname}"
-            msg_type = 'mixed' if content else 'image'
+            ext = f.filename.rsplit('.', 1)[1].lower()
+            if ext in ALLOWED_AUDIO:
+                fname = f"{uuid.uuid4().hex}.{ext}"
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                f.save(fpath)
+                audio_path = f"uploads/audio/{fname}"
+                msg_type = 'voice' if request.form.get('is_voice') else 'audio'
+            else:
+                compressed = compress_image(f)
+                fname = f"{uuid.uuid4().hex}.jpg"
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                with open(fpath, 'wb') as fp:
+                    fp.write(compressed.read())
+                image_path = f"uploads/messages/{fname}"
+                msg_type = 'mixed' if content else 'image'
 
-    if not content and not image_path:
+    if 'audio' in request.files:
+        f = request.files['audio']
+        if f and f.filename:
+            ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'webm'
+            fname = f"{uuid.uuid4().hex}.{ext}"
+            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            f.save(fpath)
+            audio_path = f"uploads/audio/{fname}"
+            msg_type = 'voice' if request.form.get('is_voice') else 'audio'
+
+    if not content and not image_path and not audio_path:
         return jsonify({'error': 'empty message'}), 400
 
     msg = GroupMessage(group_id=group_id, sender_id=uid,
-                       content=content, image_path=image_path, message_type=msg_type)
+                       content=content, image_path=image_path, audio_path=audio_path, message_type=msg_type)
     db.session.add(msg)
     db.session.commit()
 
     socketio.emit('group_message', msg.to_dict(), room=f'group_{group_id}')
     return jsonify(msg.to_dict())
+
+
+@app.route('/api/messages/<int:msg_id>', methods=['PUT'])
+@login_required
+def api_edit_message(msg_id):
+    uid = session['user_id']
+    msg = db.session.get(Message, msg_id)
+    if not msg or msg.sender_id != uid:
+        return jsonify({'error': 'not authorized'}), 403
+    content = request.form.get('content', '').strip()
+    if not content:
+        return jsonify({'error': 'empty'}), 400
+    msg.content = content
+    msg.is_edited = True
+    db.session.commit()
+    socketio.emit('message_edited', {
+        'msg_id': msg.id, 'content': content, 'chat_type': 'direct'
+    }, room=conv_room(msg.sender_id, msg.receiver_id))
+    return jsonify(msg.to_dict())
+
+
+@app.route('/api/messages/<int:msg_id>', methods=['DELETE'])
+@login_required
+def api_delete_message(msg_id):
+    uid = session['user_id']
+    msg = db.session.get(Message, msg_id)
+    if not msg:
+        return jsonify({'error': 'not found'}), 404
+    scope = request.args.get('scope', 'me')
+    if scope == 'all':
+        if msg.sender_id != uid:
+            return jsonify({'error': 'only sender can delete for all'}), 403
+        msg.deleted_for_all = True
+        db.session.commit()
+        socketio.emit('message_deleted', {
+            'msg_id': msg.id, 'chat_type': 'direct', 'scope': 'all'
+        }, room=conv_room(msg.sender_id, msg.receiver_id))
+    else:
+        if uid == msg.sender_id:
+            msg.deleted_for_sender = True
+        else:
+            msg.deleted_for_receiver = True
+        db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/groups/<int:group_id>/messages/<int:msg_id>', methods=['PUT'])
+@login_required
+def api_edit_group_message(group_id, msg_id):
+    uid = session['user_id']
+    msg = db.session.get(GroupMessage, msg_id)
+    if not msg or msg.sender_id != uid or msg.group_id != group_id:
+        return jsonify({'error': 'not authorized'}), 403
+    content = request.form.get('content', '').strip()
+    if not content:
+        return jsonify({'error': 'empty'}), 400
+    msg.content = content
+    msg.is_edited = True
+    db.session.commit()
+    socketio.emit('group_message_edited', {
+        'msg_id': msg.id, 'group_id': group_id, 'content': content
+    }, room=f'group_{group_id}')
+    return jsonify(msg.to_dict())
+
+
+@app.route('/api/groups/<int:group_id>/messages/<int:msg_id>', methods=['DELETE'])
+@login_required
+def api_delete_group_message(group_id, msg_id):
+    uid = session['user_id']
+    msg = db.session.get(GroupMessage, msg_id)
+    me = GroupMember.query.filter_by(group_id=group_id, user_id=uid).first()
+    if not msg or msg.group_id != group_id:
+        return jsonify({'error': 'not found'}), 404
+    scope = request.args.get('scope', 'all')
+    is_admin = me and me.role == 'admin'
+    if scope == 'all' and (msg.sender_id == uid or is_admin):
+        msg.is_deleted = True
+        db.session.commit()
+        socketio.emit('group_message_deleted', {
+            'msg_id': msg.id, 'group_id': group_id
+        }, room=f'group_{group_id}')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/pin', methods=['POST'])
+@login_required
+def api_pin():
+    uid = session['user_id']
+    chat_type = request.form.get('chat_type')
+    target_id = request.form.get('target_id', type=int)
+    if not chat_type or not target_id:
+        return jsonify({'error': 'missing params'}), 400
+    existing = PinnedChat.query.filter_by(user_id=uid, chat_type=chat_type, target_id=target_id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        return jsonify({'pinned': False})
+    db.session.add(PinnedChat(user_id=uid, chat_type=chat_type, target_id=target_id))
+    db.session.commit()
+    return jsonify({'pinned': True})
+
+
+@app.route('/api/pins')
+@login_required
+def api_pins():
+    uid = session['user_id']
+    pins = PinnedChat.query.filter_by(user_id=uid).all()
+    return jsonify([{'chat_type': p.chat_type, 'target_id': p.target_id} for p in pins])
 
 
 @app.route('/api/groups/<int:group_id>/add_member', methods=['POST'])
@@ -928,6 +1140,136 @@ def api_search_channels():
     ).limit(10).all()
     my_subs = {s.channel_id for s in ChannelSubscription.query.filter_by(user_id=uid).all()}
     return jsonify([{**c.to_dict(), 'is_subscribed': c.id in my_subs} for c in channels])
+
+
+@app.route('/api/channel/<int:channel_id>/subscribers')
+@login_required
+def api_channel_subscribers(channel_id):
+    ch = db.session.get(Channel, channel_id)
+    if not ch:
+        return jsonify({'error': 'not found'}), 404
+    subs = ChannelSubscription.query.filter_by(channel_id=channel_id).all()
+    return jsonify([s.user.to_dict() for s in subs if s.user])
+
+
+@app.route('/channel/<ch_username>/delete', methods=['POST'])
+@login_required
+def channel_delete(ch_username):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+    ChannelSubscription.query.filter_by(channel_id=ch.id).delete()
+    PostComment.query.filter(PostComment.post_id.in_(
+        db.session.query(ChannelPost.id).filter_by(channel_id=ch.id)
+    )).delete(synchronize_session=False)
+    ChannelPost.query.filter_by(channel_id=ch.id).delete()
+    db.session.delete(ch)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/channel/<ch_username>/post/<int:post_id>', methods=['PUT'])
+@login_required
+def channel_post_edit(ch_username, post_id):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+    post = db.session.get(ChannelPost, post_id)
+    if not post or post.channel_id != ch.id:
+        return jsonify({'error': 'not found'}), 404
+    content = request.form.get('content', '').strip()
+    post.content = content
+    post.is_edited = True
+    db.session.commit()
+    return jsonify(post.to_dict())
+
+
+@app.route('/channel/<ch_username>/post/<int:post_id>', methods=['DELETE'])
+@login_required
+def channel_post_delete(ch_username, post_id):
+    user = db.session.get(User, session['user_id'])
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != user.id:
+        return jsonify({'error': 'not owner'}), 403
+    post = db.session.get(ChannelPost, post_id)
+    if not post or post.channel_id != ch.id:
+        return jsonify({'error': 'not found'}), 404
+    PostComment.query.filter_by(post_id=post.id).delete()
+    db.session.delete(post)
+    db.session.commit()
+    socketio.emit('post_deleted', {'post_id': post_id, 'channel_id': ch.id}, room=f'channel_{ch.id}')
+    return jsonify({'ok': True})
+
+
+@app.route('/channel/<ch_username>/post/<int:post_id>/comments', methods=['GET'])
+@login_required
+def channel_post_get_comments(ch_username, post_id):
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        return jsonify({'error': 'not found'}), 404
+    comments = PostComment.query.filter_by(post_id=post_id).order_by(PostComment.created_at).all()
+    return jsonify([c.to_dict() for c in comments])
+
+
+@app.route('/channel/<ch_username>/post/<int:post_id>/comments', methods=['POST'])
+@login_required
+def channel_post_add_comment(ch_username, post_id):
+    uid = session['user_id']
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        return jsonify({'error': 'not found'}), 404
+    content = request.form.get('content', '').strip()
+    if not content or len(content) > 1000:
+        return jsonify({'error': 'invalid content'}), 400
+    comment = PostComment(post_id=post_id, user_id=uid, content=content)
+    db.session.add(comment)
+    post.comment_count = (post.comment_count or 0) + 1
+    db.session.commit()
+    socketio.emit('new_comment', {
+        'post_id': post_id,
+        'channel_id': post.channel_id,
+        'comment': comment.to_dict()
+    }, room=f'channel_{post.channel_id}')
+    return jsonify(comment.to_dict())
+
+
+@app.route('/api/profile/update', methods=['POST'])
+@login_required
+def api_profile_update():
+    user = db.session.get(User, session['user_id'])
+    dn = request.form.get('display_name', '').strip()
+    bio = request.form.get('bio', '').strip()[:300]
+    if dn:
+        user.display_name = dn
+    user.bio = bio
+    user.hide_last_seen = request.form.get('hide_last_seen') == '1'
+
+    new_username = request.form.get('username', '').strip().lower()
+    if new_username and new_username != user.username:
+        if len(new_username) < 3 or len(new_username) > 20:
+            return jsonify({'error': 'Юзернейм: от 3 до 20 символов.'}), 400
+        if not all(c.isalnum() or c in ('_', '.') for c in new_username):
+            return jsonify({'error': 'Юзернейм: только буквы, цифры, _ и .'}), 400
+        if User.query.filter_by(username=new_username).first():
+            return jsonify({'error': 'Этот юзернейм уже занят.'}), 400
+        user.username = new_username
+
+    if 'avatar' in request.files:
+        f = request.files['avatar']
+        if f and f.filename and allowed_file(f.filename):
+            compressed = compress_image(f, max_size=(400, 400), quality=85)
+            fname = f"avatar_{user.id}_{uuid.uuid4().hex[:8]}.jpg"
+            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, 'wb') as fp:
+                fp.write(compressed.read())
+            user.avatar = f"uploads/avatars/{fname}"
+
+    db.session.commit()
+    socketio.emit('user_updated', user.to_dict(), namespace='/')
+    return jsonify({'ok': True, 'user': user.to_dict()})
 
 
 @app.route('/api/channel/<int:channel_id>/posts')
@@ -1548,9 +1890,20 @@ def init_db():
     db.create_all()
     os.makedirs(os.path.join('static', 'uploads', 'avatars'), exist_ok=True)
     os.makedirs(os.path.join('static', 'uploads', 'messages'), exist_ok=True)
+    os.makedirs(os.path.join('static', 'uploads', 'audio'), exist_ok=True)
     migrations = [
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hide_last_seen BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "user" ADD COLUMN role VARCHAR(20) DEFAULT \'user\'',
+        'ALTER TABLE "message" ADD COLUMN is_edited BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "message" ADD COLUMN deleted_for_sender BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "message" ADD COLUMN deleted_for_receiver BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "message" ADD COLUMN deleted_for_all BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "message" ADD COLUMN audio_path VARCHAR(256) DEFAULT \'\'',
+        'ALTER TABLE "group_message" ADD COLUMN is_edited BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "group_message" ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "group_message" ADD COLUMN audio_path VARCHAR(256) DEFAULT \'\'',
+        'ALTER TABLE "channel_post" ADD COLUMN is_edited BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "channel_post" ADD COLUMN comment_count INTEGER DEFAULT 0',
     ]
     for sql in migrations:
         try:

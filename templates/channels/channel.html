@@ -17,11 +17,10 @@
 <div id="streamOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:3000;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
   <div style="position:absolute;top:16px;right:16px;display:flex;gap:8px;align-items:center;">
     <span class="live-badge">🔴 LIVE</span>
-    <span id="streamViewerCount" style="color:#fff;font-size:13px;"></span>
     <button onclick="leaveStream()" style="background:var(--danger);border:none;border-radius:8px;color:#fff;padding:8px 14px;cursor:pointer;font-weight:600;">Выйти</button>
   </div>
   <video id="streamRemoteVideo" autoplay playsinline style="max-width:95vw;max-height:85vh;border-radius:12px;background:#000;"></video>
-  <div id="streamConnecting" style="color:rgba(255,255,255,0.6);font-size:14px;">Подключение к трансляции...</div>
+  <div id="streamConnecting" style="color:rgba(255,255,255,0.6);font-size:14px;">Подключение...</div>
 </div>
 
 <!-- Stream broadcast overlay (owner) -->
@@ -57,14 +56,18 @@
           <h2 style="font-size:20px;font-weight:700;">{{ channel.name }}</h2>
           {% if channel.is_live %}<span class="live-badge">🔴 LIVE</span>{% endif %}
         </div>
-        <div style="color:var(--text-muted);font-size:13px;margin-top:2px;">@{{ channel.username }} · <span id="subCount">{{ channel.sub_count() }}</span> подписчиков</div>
+        <div style="color:var(--text-muted);font-size:13px;margin-top:2px;">
+          @{{ channel.username }} ·
+          <span id="subCount" style="cursor:pointer;text-decoration:underline;" onclick="openSubscribersModal()">{{ channel.sub_count() }} подписчиков</span>
+        </div>
         {% if channel.description %}<div style="font-size:14px;color:var(--text-muted);margin-top:6px;">{{ channel.description }}</div>{% endif %}
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+      <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
         {% if is_owner %}
         <button class="btn btn-ghost btn-sm" onclick="startBroadcast()" id="goLiveBtn">
           {% if channel.is_live %}🔴 Трансляция идёт{% else %}📡 Начать стрим{% endif %}
         </button>
+        <button class="btn btn-danger btn-sm" onclick="confirmDeleteChannel()" title="Удалить канал">🗑 Удалить</button>
         {% elif channel.is_live %}
         <button class="btn btn-primary btn-sm" onclick="watchStream()">▶ Смотреть</button>
         {% endif %}
@@ -80,17 +83,32 @@
   <!-- Posts feed -->
   <div id="postsFeed" style="display:flex;flex-direction:column;gap:12px;">
     {% for post in posts %}
-    <div class="card channel-post-card">
+    <div class="card channel-post-card" data-post-id="{{ post.id }}">
       <div class="card-body">
         {% if post.image_path %}
         <img src="{{ url_for('static', filename=post.image_path) }}" style="max-width:100%;border-radius:8px;display:block;margin-bottom:8px;cursor:pointer;" onclick="openPostLightbox(this.src)">
         {% endif %}
-        {% if post.content %}
-        <div style="font-size:15px;line-height:1.6;white-space:pre-wrap;">{{ post.content }}</div>
-        {% endif %}
+        <div class="post-content-text" style="font-size:15px;line-height:1.6;white-space:pre-wrap;">{% if post.content %}{{ post.content }}{% endif %}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
-          <span style="font-size:11px;color:var(--text-faint);">{{ post.created_at.strftime('%H:%M %d.%m.%Y') }}</span>
+          <span style="font-size:11px;color:var(--text-faint);">{{ post.created_at.strftime('%H:%M %d.%m.%Y') }}{% if post.is_edited %} <em>(ред.)</em>{% endif %}</span>
           <span style="font-size:11px;color:var(--text-faint);">👁 {{ post.views }}</span>
+        </div>
+        {% if is_owner %}
+        <div class="post-actions">
+          <button class="post-action-btn" onclick="editPost({{ post.id }}, this)">✏ Редактировать</button>
+          <button class="post-action-btn danger" onclick="deletePost({{ post.id }}, this)">🗑 Удалить</button>
+        </div>
+        {% endif %}
+        <!-- Comments section -->
+        <div class="comments-section">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;cursor:pointer;" onclick="toggleComments({{ post.id }}, this)">
+            💬 Комментарии (<span class="comment-count">{{ post.comment_count or 0 }}</span>) ▾
+          </div>
+          <div class="comments-list" id="comments-{{ post.id }}" style="display:none;"></div>
+          <div class="comment-input-wrap" id="commentInput-{{ post.id }}" style="display:none;">
+            <input type="text" placeholder="Написать комментарий..." maxlength="1000" onkeydown="if(event.key==='Enter')submitComment({{ post.id }},this)">
+            <button class="btn btn-primary btn-sm" onclick="submitComment({{ post.id }}, this.previousElementSibling)">↵</button>
+          </div>
         </div>
       </div>
     </div>
@@ -130,6 +148,38 @@
   <img id="postLightboxImg" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;">
 </div>
 
+<!-- Subscribers Modal -->
+<div class="modal-overlay" id="subscribersModal" onclick="if(event.target===this)closeSubscribersModal()">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3 id="subscribersTitle">Подписчики</h3>
+      <button class="btn-icon" onclick="closeSubscribersModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body modal-scroll" id="subscribersBody" style="padding:8px 24px;"></div>
+  </div>
+</div>
+
+<!-- Edit Post Modal -->
+<div class="modal-overlay" id="editPostModal" onclick="if(event.target===this)closeEditPostModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Редактировать пост</h3>
+      <button class="btn-icon" onclick="closeEditPostModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <textarea id="editPostText" rows="5" style="width:100%;resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text);outline:none;" maxlength="4000"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditPostModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="submitEditPost()" id="editPostSubmitBtn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 const CHANNEL_ID = {{ channel.id }};
@@ -138,31 +188,33 @@ const IS_OWNER = {{ 'true' if is_owner else 'false' }};
 const IS_SUBSCRIBED = {{ 'true' if is_subscribed else 'false' }};
 let isSubscribed = IS_SUBSCRIBED;
 let postImgFile = null;
+let editingPostId = null;
 
 const socket = io();
 socket.emit('join_channel_room', { channel_id: CHANNEL_ID });
 
-socket.on('channel_post', (post) => {
-  prependPost(post);
+socket.on('channel_post', (post) => { prependPost(post); });
+socket.on('post_deleted', (data) => {
+  if (data.channel_id === CHANNEL_ID) {
+    const el = document.querySelector(`.channel-post-card[data-post-id="${data.post_id}"]`);
+    if (el) { el.style.animation = 'fadeOut 0.2s ease forwards'; setTimeout(() => el.remove(), 200); }
+  }
 });
-
+socket.on('new_comment', (data) => {
+  if (data.channel_id === CHANNEL_ID) {
+    const list = document.getElementById(`comments-${data.post_id}`);
+    if (list && list.style.display !== 'none') {
+      list.insertAdjacentHTML('beforeend', renderComment(data.comment));
+    }
+    const countEl = document.querySelector(`.channel-post-card[data-post-id="${data.post_id}"] .comment-count`);
+    if (countEl) countEl.textContent = parseInt(countEl.textContent || 0) + 1;
+  }
+});
 socket.on('channel_went_live', (data) => {
   if (data.channel_id === CHANNEL_ID) {
     document.getElementById('goLiveBtn') && (document.getElementById('goLiveBtn').textContent = '🔴 Трансляция идёт');
-    if (!IS_OWNER) {
-      const hdr = document.querySelector('.card .card-body');
-      if (!document.getElementById('watchBtn')) {
-        const btn = document.createElement('button');
-        btn.id = 'watchBtn';
-        btn.className = 'btn btn-primary btn-sm';
-        btn.textContent = '▶ Смотреть';
-        btn.onclick = watchStream;
-        hdr && hdr.appendChild(btn);
-      }
-    }
   }
 });
-
 socket.on('channel_stream_ended', (data) => {
   if (data.channel_id === CHANNEL_ID) {
     leaveStream();
@@ -191,20 +243,35 @@ function prependPost(post) {
   const feed = document.getElementById('postsFeed');
   const div = document.createElement('div');
   div.className = 'card channel-post-card';
+  div.dataset.postId = post.id;
   div.style.animation = 'fadeInUp 0.3s ease both';
   div.innerHTML = `<div class="card-body">
     ${post.image_url ? `<img src="${post.image_url}" style="max-width:100%;border-radius:8px;display:block;margin-bottom:8px;cursor:pointer;" onclick="openPostLightbox(this.src)">` : ''}
-    ${post.content ? `<div style="font-size:15px;line-height:1.6;white-space:pre-wrap;">${escHtml(post.content)}</div>` : ''}
+    <div class="post-content-text" style="font-size:15px;line-height:1.6;white-space:pre-wrap;">${escHtml(post.content)}</div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
       <span style="font-size:11px;color:var(--text-faint);">${post.created_at} ${post.created_date}</span>
       <span style="font-size:11px;color:var(--text-faint);">👁 ${post.views}</span>
+    </div>
+    ${IS_OWNER ? `<div class="post-actions">
+      <button class="post-action-btn" onclick="editPost(${post.id}, this)">✏ Редактировать</button>
+      <button class="post-action-btn danger" onclick="deletePost(${post.id}, this)">🗑 Удалить</button>
+    </div>` : ''}
+    <div class="comments-section">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;cursor:pointer;" onclick="toggleComments(${post.id}, this)">
+        💬 Комментарии (<span class="comment-count">0</span>) ▾
+      </div>
+      <div class="comments-list" id="comments-${post.id}" style="display:none;"></div>
+      <div class="comment-input-wrap" id="commentInput-${post.id}" style="display:none;">
+        <input type="text" placeholder="Написать комментарий..." maxlength="1000" onkeydown="if(event.key==='Enter')submitComment(${post.id},this)">
+        <button class="btn btn-primary btn-sm" onclick="submitComment(${post.id}, this.previousElementSibling)">↵</button>
+      </div>
     </div>
   </div>`;
   feed.prepend(div);
 }
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function handlePostImg(input) {
@@ -223,6 +290,60 @@ function clearPostImg() {
   document.getElementById('postImgThumb').src = '';
 }
 
+// ── Edit / Delete posts ───────────────────────────────────────────────────────
+function editPost(postId, btn) {
+  const card = btn.closest('.channel-post-card');
+  const textEl = card.querySelector('.post-content-text');
+  document.getElementById('editPostText').value = textEl.textContent;
+  editingPostId = postId;
+  document.getElementById('editPostModal').classList.add('open');
+}
+
+function closeEditPostModal() {
+  document.getElementById('editPostModal').classList.remove('open');
+  editingPostId = null;
+}
+
+function submitEditPost() {
+  if (!editingPostId) return;
+  const content = document.getElementById('editPostText').value.trim();
+  const fd = new FormData();
+  fd.append('content', content);
+  fetch(`/channel/${CHANNEL_USERNAME}/post/${editingPostId}`, { method: 'PUT', body: fd })
+    .then(r => r.json())
+    .then(post => {
+      if (post.error) return;
+      const card = document.querySelector(`.channel-post-card[data-post-id="${editingPostId}"]`);
+      if (card) {
+        const textEl = card.querySelector('.post-content-text');
+        if (textEl) textEl.textContent = content;
+      }
+      closeEditPostModal();
+    });
+}
+
+function deletePost(postId, btn) {
+  if (!confirm('Удалить этот пост?')) return;
+  fetch(`/channel/${CHANNEL_USERNAME}/post/${postId}`, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const card = btn.closest('.channel-post-card');
+        if (card) card.remove();
+      }
+    });
+}
+
+// ── Delete channel ────────────────────────────────────────────────────────────
+function confirmDeleteChannel() {
+  if (!confirm(`Удалить канал @${CHANNEL_USERNAME}? Это действие необратимо!`)) return;
+  fetch(`/channel/${CHANNEL_USERNAME}/delete`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) window.location.href = '/channels';
+    });
+}
+
 // ── Subscribe ─────────────────────────────────────────────────────────────────
 function toggleSubscribe() {
   fetch(`/channel/${CHANNEL_USERNAME}/subscribe`, { method: 'POST' })
@@ -232,15 +353,102 @@ function toggleSubscribe() {
       const btn = document.getElementById('subBtn');
       btn.textContent = isSubscribed ? 'Отписаться' : 'Подписаться';
       btn.className = isSubscribed ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
-      document.getElementById('subCount').textContent = data.sub_count;
+      document.getElementById('subCount').textContent = data.sub_count + ' подписчиков';
+    });
+}
+
+// ── Subscribers modal ─────────────────────────────────────────────────────────
+function openSubscribersModal() {
+  fetch(`/api/channel/${CHANNEL_ID}/subscribers`)
+    .then(r => r.json())
+    .then(subs => {
+      document.getElementById('subscribersTitle').textContent = `Подписчики (${subs.length})`;
+      const body = document.getElementById('subscribersBody');
+      if (!subs.length) { body.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px;">Нет подписчиков</p>'; }
+      else {
+        body.innerHTML = subs.map(u => {
+          const initials = (u.display_name || '?')[0].toUpperCase();
+          const avatar = u.avatar
+            ? `<img class="avatar" style="width:40px;height:40px;" src="${u.avatar}" alt="">`
+            : `<div class="avatar-placeholder" style="width:40px;height:40px;font-size:14px;">${escHtml(initials)}</div>`;
+          const onlineDot = u.online ? '<span class="online-dot" style="bottom:-1px;right:-1px;"></span>' : '';
+          return `<div class="member-list-item">
+            <div class="avatar-wrap">${avatar}${onlineDot}</div>
+            <div class="member-info">
+              <div class="member-name">${escHtml(u.display_name)}</div>
+              <div class="member-username">@${escHtml(u.username)}</div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+      document.getElementById('subscribersModal').classList.add('open');
+    });
+}
+
+function closeSubscribersModal() {
+  document.getElementById('subscribersModal').classList.remove('open');
+}
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+function toggleComments(postId, headerEl) {
+  const list = document.getElementById(`comments-${postId}`);
+  const inputWrap = document.getElementById(`commentInput-${postId}`);
+  const visible = list.style.display !== 'none';
+  if (visible) {
+    list.style.display = 'none';
+    inputWrap.style.display = 'none';
+  } else {
+    list.style.display = 'block';
+    inputWrap.style.display = 'flex';
+    if (!list.dataset.loaded) {
+      list.dataset.loaded = '1';
+      fetch(`/channel/${CHANNEL_USERNAME}/post/${postId}/comments`)
+        .then(r => r.json())
+        .then(comments => {
+          list.innerHTML = comments.map(renderComment).join('') || '<p style="color:var(--text-faint);font-size:12px;text-align:center;padding:8px;">Комментариев пока нет</p>';
+        });
+    }
+  }
+}
+
+function renderComment(c) {
+  const initials = (c.user?.display_name || '?')[0].toUpperCase();
+  const avatar = c.user?.avatar
+    ? `<img class="avatar" style="width:28px;height:28px;" src="${c.user.avatar}" alt="">`
+    : `<div class="avatar-placeholder" style="width:28px;height:28px;font-size:10px;">${escHtml(initials)}</div>`;
+  return `<div class="comment-item">
+    <div class="avatar-wrap">${avatar}</div>
+    <div class="comment-bubble">
+      <div class="comment-author">${escHtml(c.user?.display_name || 'Аноним')}</div>
+      <div class="comment-text">${escHtml(c.content)}</div>
+      <div class="comment-time">${c.created_at}</div>
+    </div>
+  </div>`;
+}
+
+function submitComment(postId, input) {
+  const content = input.value.trim();
+  if (!content) return;
+  const fd = new FormData();
+  fd.append('content', content);
+  fetch(`/channel/${CHANNEL_USERNAME}/post/${postId}/comments`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(comment => {
+      if (comment.error) return;
+      input.value = '';
+      const list = document.getElementById(`comments-${postId}`);
+      const empty = list.querySelector('p');
+      if (empty) empty.remove();
+      list.insertAdjacentHTML('beforeend', renderComment(comment));
+      const countEl = document.querySelector(`.channel-post-card[data-post-id="${postId}"] .comment-count`);
+      if (countEl) countEl.textContent = parseInt(countEl.textContent || 0) + 1;
     });
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
 function openPostLightbox(src) {
   document.getElementById('postLightboxImg').src = src;
-  const lb = document.getElementById('postLightbox');
-  lb.style.display = 'flex';
+  document.getElementById('postLightbox').style.display = 'flex';
 }
 
 // ── Streaming (viewer) ────────────────────────────────────────────────────────
@@ -271,9 +479,7 @@ socket.on('stream_offer', async (data) => {
     document.getElementById('streamConnecting').style.display = 'none';
   };
   streamPC.onicecandidate = (e) => {
-    if (e.candidate) {
-      socket.emit('stream_ice', { target_sid: data.streamer_sid, candidate: e.candidate });
-    }
+    if (e.candidate) socket.emit('stream_ice', { target_sid: data.streamer_sid, candidate: e.candidate });
   };
   await streamPC.setRemoteDescription(new RTCSessionDescription(data.offer));
   const answer = await streamPC.createAnswer();
@@ -292,19 +498,13 @@ function leaveStream() {
   document.getElementById('streamRemoteVideo').srcObject = null;
 }
 
-// ── Streaming (broadcaster) ───────────────────────────────────────────────────
 async function startBroadcast() {
   try {
     const choice = confirm('Транслировать экран?\nОК = экран, Отмена = камера');
-    if (choice) {
-      broadcastStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-    } else {
-      broadcastStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    }
-  } catch(e) {
-    alert('Не удалось получить доступ к медиа: ' + e.message);
-    return;
-  }
+    broadcastStream = choice
+      ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+      : await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch(e) { alert('Не удалось получить доступ к медиа: ' + e.message); return; }
   document.getElementById('streamLocalVideoFull').srcObject = broadcastStream;
   document.getElementById('streamBroadcastOverlay').style.display = 'flex';
   document.getElementById('goLiveBtn').textContent = '🔴 Трансляция идёт';
@@ -317,14 +517,11 @@ socket.on('stream_viewer_joined', async (data) => {
   const pc = new RTCPeerConnection(ICE_SERVERS);
   broadcastPCs[data.viewer_sid] = pc;
   broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
-  pc.onicecandidate = (e) => {
-    if (e.candidate) socket.emit('stream_ice', { target_sid: data.viewer_sid, candidate: e.candidate });
-  };
+  pc.onicecandidate = (e) => { if (e.candidate) socket.emit('stream_ice', { target_sid: data.viewer_sid, candidate: e.candidate }); };
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   socket.emit('stream_offer', { viewer_sid: data.viewer_sid, offer, channel_id: CHANNEL_ID });
-  const count = Object.keys(broadcastPCs).length;
-  document.getElementById('broadcastViewerCount').textContent = count + ' зрителей';
+  document.getElementById('broadcastViewerCount').textContent = Object.keys(broadcastPCs).length + ' зрителей';
 });
 
 socket.on('stream_answer', async (data) => {
@@ -349,6 +546,11 @@ function toggleBroadcastMute() {
   document.getElementById('broadcastMuteBtn').style.background = broadcastMuted ? 'var(--danger)' : 'var(--surface3)';
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { leaveStream(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { leaveStream(); closeSubscribersModal(); closeEditPostModal(); } });
 </script>
+<style>
+@keyframes fadeOut {
+  to { opacity: 0; transform: scale(0.95); }
+}
+</style>
 {% endblock %}
