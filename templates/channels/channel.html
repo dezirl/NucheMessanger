@@ -46,10 +46,26 @@
   <!-- Channel header -->
   <div class="card" style="margin-bottom:20px;">
     <div class="card-body" style="display:flex;align-items:center;gap:16px;">
-      {% if channel.avatar %}
-      <img src="{{ file_url(channel.avatar) }}" style="width:72px;height:72px;border-radius:18px;object-fit:cover;flex-shrink:0;">
+      {% if is_owner %}
+      <div style="position:relative;flex-shrink:0;cursor:pointer;" onclick="document.getElementById('chAvatarFile').click()"
+           onmouseenter="document.getElementById('chAvatarHover').style.opacity='1'"
+           onmouseleave="document.getElementById('chAvatarHover').style.opacity='0'">
+        {% if channel.avatar %}
+        <img id="chAvatarImg" src="{{ file_url(channel.avatar) }}" style="width:72px;height:72px;border-radius:18px;object-fit:cover;display:block;">
+        {% else %}
+        <div id="chAvatarImg" style="width:72px;height:72px;border-radius:18px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:32px;">📢</div>
+        {% endif %}
+        <div id="chAvatarHover" style="position:absolute;inset:0;border-radius:18px;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2" style="width:24px;height:24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        </div>
+      </div>
+      <input type="file" id="chAvatarFile" accept="image/*" style="display:none" onchange="uploadChannelAvatar(this)">
       {% else %}
-      <div style="width:72px;height:72px;border-radius:18px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0;">📢</div>
+        {% if channel.avatar %}
+        <img src="{{ file_url(channel.avatar) }}" style="width:72px;height:72px;border-radius:18px;object-fit:cover;flex-shrink:0;">
+        {% else %}
+        <div style="width:72px;height:72px;border-radius:18px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0;">📢</div>
+        {% endif %}
       {% endif %}
       <div style="flex:1;min-width:0;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -553,4 +569,27 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { leaveStrea
   to { opacity: 0; transform: scale(0.95); }
 }
 </style>
+
+{% if is_owner %}
+<script>
+function uploadChannelAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('avatar', file);
+  fetch('/channel/{{ channel.username }}/update', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && data.avatar) {
+        const el = document.getElementById('chAvatarImg');
+        const img = document.createElement('img');
+        img.id = 'chAvatarImg';
+        img.src = data.avatar;
+        img.style = 'width:72px;height:72px;border-radius:18px;object-fit:cover;display:block;';
+        el.replaceWith(img);
+      }
+    });
+}
+</script>
+{% endif %}
 {% endblock %}

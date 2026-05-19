@@ -633,31 +633,93 @@ function closeUserInfoPanel() {
 
 // ── Group Members Modal ───────────────────────────────────────────────────────
 
+let _gmGroupId = null;
+
 function openGroupMembersModal() {
   if (!currentGroupId) return;
+  _gmGroupId = currentGroupId;
   fetch(`/api/groups/${currentGroupId}/info`)
     .then(r => r.json())
     .then(g => {
       document.getElementById('groupMembersTitle').textContent = `Участники — ${g.name} (${g.member_count})`;
+      const myId = CURRENT_USER ? CURRENT_USER.id : null;
+      const isAdmin = g.created_by === myId ||
+        g.members.some(m => m.user.id === myId && m.role === 'admin');
+
+      const avatarContent = g.avatar
+        ? `<img src="${g.avatar}" id="gmAvatarImg" style="width:64px;height:64px;border-radius:16px;object-fit:cover;">`
+        : `<div id="gmAvatarImg" style="width:64px;height:64px;border-radius:16px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:28px;">👥</div>`;
+
+      const adminHover = isAdmin
+        ? `<div id="gmAvatarHover" onclick="document.getElementById('gmAvatarFile').click()"
+             style="position:absolute;inset:0;border-radius:16px;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;">
+             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2" style="width:22px;height:22px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+           </div>`
+        : '';
+
       const body = document.getElementById('groupMembersBody');
-      body.innerHTML = g.members.map(m => {
-        const u = m.user;
-        const initials = u.display_name ? u.display_name[0].toUpperCase() : '?';
-        const avatar = u.avatar
-          ? `<img class="avatar" style="width:40px;height:40px;" src="${u.avatar}" alt="">`
-          : `<div class="avatar-placeholder" style="width:40px;height:40px;font-size:14px;">${initials}</div>`;
-        const roleBadge = m.role === 'admin' ? '<span class="member-role-badge">Админ</span>' : '';
-        const onlineDot = u.online ? '<span class="online-dot" style="bottom:-1px;right:-1px;"></span>' : '';
-        return `<div class="member-list-item" onclick="closeGroupMembersModal();openConversation(${u.id})">
-          <div class="avatar-wrap">${avatar}${onlineDot}</div>
-          <div class="member-info">
-            <div class="member-name">${escapeHtml(u.display_name)}</div>
-            <div class="member-username">@${escapeHtml(u.username)}</div>
+      body.innerHTML = `
+        <div style="display:flex;align-items:center;gap:14px;padding:12px 0 16px;border-bottom:1px solid var(--border);margin-bottom:8px;">
+          <div style="position:relative;flex-shrink:0;" id="gmAvatarWrap">
+            ${avatarContent}
+            ${adminHover}
           </div>
-          ${roleBadge}
-        </div>`;
-      }).join('');
+          <div>
+            <div style="font-weight:700;font-size:16px;">${escapeHtml(g.name)}</div>
+            <div style="font-size:13px;color:var(--text-muted);">${g.member_count} участников</div>
+          </div>
+        </div>
+        <input type="file" id="gmAvatarFile" accept="image/*" style="display:none" onchange="gmUploadAvatar(this)">
+        ${g.members.map(m => {
+          const u = m.user;
+          const initials = u.display_name ? u.display_name[0].toUpperCase() : '?';
+          const av = u.avatar
+            ? `<img class="avatar" style="width:40px;height:40px;" src="${u.avatar}" alt="">`
+            : `<div class="avatar-placeholder" style="width:40px;height:40px;font-size:14px;">${initials}</div>`;
+          const roleBadge = m.role === 'admin' ? '<span class="member-role-badge">Админ</span>' : '';
+          const onlineDot = u.online ? '<span class="online-dot" style="bottom:-1px;right:-1px;"></span>' : '';
+          return `<div class="member-list-item" onclick="closeGroupMembersModal();openConversation(${u.id})">
+            <div class="avatar-wrap">${av}${onlineDot}</div>
+            <div class="member-info">
+              <div class="member-name">${escapeHtml(u.display_name)}</div>
+              <div class="member-username">@${escapeHtml(u.username)}</div>
+            </div>
+            ${roleBadge}
+          </div>`;
+        }).join('')}`;
+
+      if (isAdmin) {
+        const wrap = document.getElementById('gmAvatarWrap');
+        const hover = document.getElementById('gmAvatarHover');
+        if (wrap && hover) {
+          wrap.addEventListener('mouseenter', () => hover.style.opacity = '1');
+          wrap.addEventListener('mouseleave', () => hover.style.opacity = '0');
+        }
+      }
       document.getElementById('groupMembersModal').classList.add('open');
+    });
+}
+
+function gmUploadAvatar(input) {
+  const file = input.files[0];
+  if (!file || !_gmGroupId) return;
+  const fd = new FormData();
+  fd.append('avatar', file);
+  fetch(`/api/groups/${_gmGroupId}/update`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && data.avatar) {
+        const wrap = document.getElementById('gmAvatarWrap');
+        const existing = document.getElementById('gmAvatarImg');
+        const img = document.createElement('img');
+        img.id = 'gmAvatarImg';
+        img.src = data.avatar;
+        img.style = 'width:64px;height:64px;border-radius:16px;object-fit:cover;';
+        if (existing) existing.replaceWith(img);
+        // update chat header if open
+        const headerAvatar = document.getElementById('partnerAvatar');
+        if (headerAvatar) headerAvatar.src = data.avatar;
+      }
     });
 }
 

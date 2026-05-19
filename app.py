@@ -751,7 +751,7 @@ def api_groups():
                 'id': group.id,
                 'name': group.name,
                 'description': group.description,
-                'avatar': url_for('static', filename=group.avatar) if group.avatar else '',
+                'avatar': get_file_url(group.avatar) if group.avatar else '',
                 'member_count': group.members.count(),
             },
             'last_message': last_msg.to_dict() if last_msg else None,
@@ -801,11 +801,37 @@ def api_group_info(group_id):
         'id': group.id,
         'name': group.name,
         'description': group.description,
-        'avatar': url_for('static', filename=group.avatar) if group.avatar else '',
+        'avatar': get_file_url(group.avatar) if group.avatar else '',
         'created_by': group.created_by,
         'member_count': len(members),
         'members': [{'user': m.user.to_dict(), 'role': m.role} for m in members],
     })
+
+
+@app.route('/api/groups/<int:group_id>/update', methods=['POST'])
+@login_required
+def api_group_update(group_id):
+    uid = session['user_id']
+    group = db.session.get(GroupChat, group_id)
+    if not group:
+        return jsonify({'error': 'not found'}), 404
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=uid).first()
+    if not member or (member.role != 'admin' and group.created_by != uid):
+        return jsonify({'error': 'not authorized'}), 403
+
+    name = request.form.get('name', '').strip()
+    if name:
+        group.name = name
+
+    if 'avatar' in request.files:
+        f = request.files['avatar']
+        if f and f.filename and allowed_file(f.filename):
+            compressed = compress_image(f, max_size=(400, 400), quality=85)
+            fname = f"group_{group_id}_{uuid.uuid4().hex[:8]}.jpg"
+            group.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
+
+    db.session.commit()
+    return jsonify({'ok': True, 'avatar': get_file_url(group.avatar) if group.avatar else '', 'name': group.name})
 
 
 @app.route('/api/groups/<int:group_id>/messages')
@@ -1092,6 +1118,25 @@ def channel_subscribe(ch_username):
         db.session.add(ChannelSubscription(channel_id=ch.id, user_id=user.id))
         db.session.commit()
         return jsonify({'subscribed': True, 'sub_count': ch.sub_count()})
+
+
+@app.route('/channel/<ch_username>/update', methods=['POST'])
+@login_required
+def channel_update(ch_username):
+    uid = session['user_id']
+    ch = Channel.query.filter_by(username=ch_username).first_or_404()
+    if ch.owner_id != uid:
+        return jsonify({'error': 'not owner'}), 403
+
+    if 'avatar' in request.files:
+        f = request.files['avatar']
+        if f and f.filename and allowed_file(f.filename):
+            compressed = compress_image(f, max_size=(400, 400), quality=85)
+            fname = f"channel_{ch.id}_{uuid.uuid4().hex[:8]}.jpg"
+            ch.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
+
+    db.session.commit()
+    return jsonify({'ok': True, 'avatar': get_file_url(ch.avatar) if ch.avatar else ''})
 
 
 @app.route('/channel/<ch_username>/post', methods=['POST'])
