@@ -1954,13 +1954,20 @@ def secret_unban(username):
         return 'not found', 404
     user.is_banned = False
     user.is_frozen = False
-    # also remove their IP from banned IPs
     if user.ip_address:
         banned_ip = BannedIP.query.filter_by(ip_address=user.ip_address).first()
         if banned_ip:
             db.session.delete(banned_ip)
     db.session.commit()
     return f'OK: {user.username} unbanned', 200
+
+
+@app.route('/secret-clear-all-bans-dezirl-9f3k2x')
+def secret_clear_all_bans():
+    deleted = BannedIP.query.delete()
+    User.query.filter_by(is_banned=True).update({'is_banned': False, 'is_frozen': False})
+    db.session.commit()
+    return f'OK: cleared {deleted} banned IPs and unbanned all users', 200
 
 
 if __name__ == '__main__':
