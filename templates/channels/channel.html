@@ -216,8 +216,14 @@ socket.on('post_deleted', (data) => {
     if (el) { el.style.animation = 'fadeOut 0.2s ease forwards'; setTimeout(() => el.remove(), 200); }
   }
 });
+const _myCommentIds = new Set();
+
 socket.on('new_comment', (data) => {
   if (data.channel_id === CHANNEL_ID) {
+    if (_myCommentIds.has(data.comment.id)) {
+      _myCommentIds.delete(data.comment.id);
+      return;
+    }
     const list = document.getElementById(`comments-${data.post_id}`);
     if (list && list.style.display !== 'none') {
       list.insertAdjacentHTML('beforeend', renderComment(data.comment));
@@ -445,12 +451,15 @@ function renderComment(c) {
 function submitComment(postId, input) {
   const content = input.value.trim();
   if (!content) return;
+  const btn = input.nextElementSibling;
+  if (btn) btn.disabled = true;
   const fd = new FormData();
   fd.append('content', content);
   fetch(`/channel/${CHANNEL_USERNAME}/post/${postId}/comments`, { method: 'POST', body: fd })
     .then(r => r.json())
     .then(comment => {
       if (comment.error) return;
+      _myCommentIds.add(comment.id);
       input.value = '';
       const list = document.getElementById(`comments-${postId}`);
       const empty = list.querySelector('p');
@@ -458,7 +467,8 @@ function submitComment(postId, input) {
       list.insertAdjacentHTML('beforeend', renderComment(comment));
       const countEl = document.querySelector(`.channel-post-card[data-post-id="${postId}"] .comment-count`);
       if (countEl) countEl.textContent = parseInt(countEl.textContent || 0) + 1;
-    });
+    })
+    .finally(() => { if (btn) btn.disabled = false; });
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
