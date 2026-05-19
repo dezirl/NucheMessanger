@@ -126,6 +126,7 @@ class User(db.Model):
             'hide_last_seen': self.hide_last_seen,
             'role': self.role,
             'is_admin': self.is_admin,
+            'created_at': self.created_at.strftime('%d.%m.%Y') if self.created_at else '',
         }
 
 

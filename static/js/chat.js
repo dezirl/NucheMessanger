@@ -731,6 +731,40 @@ function closeGroupMembersModal() {
 
 let peAvatarFile = null;
 
+// ── My Profile Modal ──────────────────────────────────────────────────────────
+
+function openMyProfileModal() {
+  document.getElementById('userMenu').classList.remove('open');
+  const u = CURRENT_USER;
+  const img = document.getElementById('mpAvatarImg');
+  const initials = document.getElementById('mpAvatarInitials');
+  if (u.avatar && !u.avatar.includes('default_avatar')) {
+    img.src = u.avatar;
+    img.style.display = '';
+    initials.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    initials.style.display = 'flex';
+    initials.textContent = (u.display_name || '?')[0].toUpperCase();
+  }
+  document.getElementById('mpDisplayName').innerHTML =
+    escapeHtml(u.display_name) +
+    (u.is_admin ? ' <span style="font-size:11px;background:var(--accent);color:#fff;padding:2px 7px;border-radius:20px;font-weight:600;vertical-align:middle;">Admin</span>' : '');
+  document.getElementById('mpUsername').textContent = '@' + u.username;
+  const st = document.getElementById('mpStatus');
+  st.textContent = u.online ? '● Онлайн' : '● ' + u.last_seen;
+  st.style.color = u.online ? 'var(--online)' : 'var(--text-muted)';
+  const bioEl = document.getElementById('mpBio');
+  if (u.bio) { bioEl.textContent = u.bio; bioEl.style.display = ''; }
+  else bioEl.style.display = 'none';
+  document.getElementById('mpJoined').textContent = u.created_at || '';
+  document.getElementById('myProfileModal').classList.add('open');
+}
+
+function closeMyProfileModal() {
+  document.getElementById('myProfileModal').classList.remove('open');
+}
+
 function openProfileEditModal() {
   document.getElementById('userMenu').classList.remove('open');
   const u = CURRENT_USER;
@@ -1365,7 +1399,7 @@ function openLightbox(src) {
   document.getElementById('lightbox').classList.add('open');
 }
 function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeCreateGroup(); closeGroupMembersModal(); closeProfileEditModal(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeCreateGroup(); closeGroupMembersModal(); closeProfileEditModal(); closeMyProfileModal(); } });
 
 // ── Dropdown menu ─────────────────────────────────────────────────────────────
 
