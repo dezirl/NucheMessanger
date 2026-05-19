@@ -50,9 +50,9 @@
     <span class="card-title">Последние регистрации</span>
     <a href="/admin/users" class="btn btn-ghost btn-sm">Все пользователи</a>
   </div>
-  <div style="overflow-x:auto;">
+  <div style="overflow-x:auto;overflow-y:auto;max-height:400px;">
     <table class="table">
-      <thead>
+      <thead style="position:sticky;top:0;z-index:1;background:var(--surface2);">
         <tr>
           <th>Пользователь</th>
           <th>Email</th>
