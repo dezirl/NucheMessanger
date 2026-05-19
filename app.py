@@ -25,37 +25,17 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
-# ── Cloud storage (Supabase Storage) ─────────────────────────────────────────
-_SB_URL = os.environ.get('SUPABASE_URL', '')
-_SB_KEY = os.environ.get('SUPABASE_KEY', '')
-_SB_BUCKET = os.environ.get('SUPABASE_BUCKET', 'uploads')
-_sb_client = None
-
-def _get_sb():
-    global _sb_client
-    if _sb_client is None and _SB_URL and _SB_KEY:
-        from supabase import create_client
-        _sb_client = create_client(_SB_URL, _SB_KEY)
-    return _sb_client
+# ── File storage (local, Railway volume mounted at /app/static/uploads) ───────
+_UPLOAD_BASE = os.environ.get('UPLOAD_BASE', os.path.join('static', 'uploads'))
 
 def save_upload(data, subfolder, filename, content_type='application/octet-stream'):
-    """Upload file to Supabase Storage or save locally. Returns key uploads/subfolder/filename."""
+    """Save file to local filesystem. Returns key uploads/subfolder/filename."""
     key = f"uploads/{subfolder}/{filename}"
     body = data if isinstance(data, bytes) else data.read()
-    client = _get_sb()
-    if client:
-        try:
-            client.storage.from_(_SB_BUCKET).upload(
-                path=key, file=body,
-                file_options={'content-type': content_type, 'upsert': 'true'}
-            )
-        except Exception as e:
-            print(f'[Storage] upload error: {e}')
-    else:
-        fpath = os.path.join('static', key)
-        os.makedirs(os.path.dirname(fpath), exist_ok=True)
-        with open(fpath, 'wb') as fp:
-            fp.write(body)
+    fpath = os.path.join('static', key)
+    os.makedirs(os.path.dirname(fpath), exist_ok=True)
+    with open(fpath, 'wb') as fp:
+        fp.write(body)
     return key
 
 def get_file_url(path):
@@ -64,9 +44,6 @@ def get_file_url(path):
         return ''
     if path.startswith('http://') or path.startswith('https://'):
         return path
-    client = _get_sb()
-    if client:
-        return client.storage.from_(_SB_BUCKET).get_public_url(path)
     return url_for('static', filename=path)
 
 @app.context_processor
