@@ -277,13 +277,15 @@ socket.on('ticket_reply_notify', (data) => {
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.chat-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  loadConversations();
+  if (_lastConvItems.length) renderConvList(_lastConvItems);
+  else { _lastConvRender = ''; loadConversations(); }
 }
 
 // ── Conversations + Groups ────────────────────────────────────────────────────
 
 let _convLoadTimer = null;
 let _lastConvRender = '';
+let _lastConvItems = [];
 
 function loadConversations() {
   clearTimeout(_convLoadTimer);
@@ -333,6 +335,7 @@ function _doLoadConversations() {
     ));
     if (signature === _lastConvRender) return;
     _lastConvRender = signature;
+    _lastConvItems = all;
 
     localStorage.setItem('flight_convs_cache', JSON.stringify(all));
     renderConvList(all);
