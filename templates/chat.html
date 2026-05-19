@@ -43,7 +43,7 @@
     <div class="sidebar-footer" id="sidebarFooter">
       <div class="avatar-wrap">
         {% if current_user.avatar %}
-        <img class="avatar avatar-sm" src="{{ url_for('static', filename=current_user.avatar) }}" alt="">
+        <img class="avatar avatar-sm" src="{{ file_url(current_user.avatar) }}" alt="">
         {% else %}
         <div class="avatar-placeholder sm">{{ current_user.display_name[0].upper() }}</div>
         {% endif %}

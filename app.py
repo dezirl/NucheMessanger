@@ -3,6 +3,7 @@ import io
 import uuid
 from datetime import datetime
 from functools import wraps
+import boto3
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, session, jsonify, send_from_directory)
@@ -24,6 +25,51 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
+
+# ── Cloud storage (Cloudflare R2 / S3-compatible) ─────────────────────────────
+_R2_BUCKET = os.environ.get('R2_BUCKET_NAME', '')
+_R2_PUBLIC_URL = os.environ.get('R2_PUBLIC_URL', '')
+_r2_client = None
+
+def _get_r2():
+    global _r2_client
+    if _r2_client is None and os.environ.get('R2_ENDPOINT_URL') and _R2_BUCKET:
+        _r2_client = boto3.client(
+            's3',
+            endpoint_url=os.environ.get('R2_ENDPOINT_URL'),
+            aws_access_key_id=os.environ.get('R2_ACCESS_KEY_ID', ''),
+            aws_secret_access_key=os.environ.get('R2_SECRET_ACCESS_KEY', ''),
+            region_name='auto',
+        )
+    return _r2_client
+
+def save_upload(data, subfolder, filename, content_type='application/octet-stream'):
+    """Upload file to R2 or save locally. Returns relative key uploads/subfolder/filename."""
+    key = f"uploads/{subfolder}/{filename}"
+    body = data if isinstance(data, bytes) else data.read()
+    client = _get_r2()
+    if client and _R2_BUCKET:
+        client.put_object(Bucket=_R2_BUCKET, Key=key, Body=body, ContentType=content_type)
+    else:
+        fpath = os.path.join('static', key)
+        os.makedirs(os.path.dirname(fpath), exist_ok=True)
+        with open(fpath, 'wb') as fp:
+            fp.write(body)
+    return key
+
+def get_file_url(path):
+    """Return public URL for a stored file path."""
+    if not path:
+        return ''
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+    if _R2_PUBLIC_URL:
+        return _R2_PUBLIC_URL.rstrip('/') + '/' + path.lstrip('/')
+    return url_for('static', filename=path)
+
+@app.context_processor
+def inject_file_url():
+    return dict(file_url=get_file_url)
 
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
@@ -86,7 +132,7 @@ class User(db.Model):
             'id': self.id,
             'username': self.username,
             'display_name': self.display_name,
-            'avatar': url_for('static', filename=self.avatar) if self.avatar else url_for('static', filename='default_avatar.svg'),
+            'avatar': get_file_url(self.avatar) if self.avatar else url_for('static', filename='default_avatar.svg'),
             'bio': self.bio,
             'online': self.online,
             'last_seen': self.format_last_seen(),
@@ -120,8 +166,8 @@ class Message(db.Model):
             'sender_id': self.sender_id,
             'receiver_id': self.receiver_id,
             'content': self.content,
-            'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
-            'audio_url': url_for('static', filename=self.audio_path) if self.audio_path else '',
+            'image_url': get_file_url(self.image_path) if self.image_path else '',
+            'audio_url': get_file_url(self.audio_path) if self.audio_path else '',
             'message_type': self.message_type,
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
@@ -199,8 +245,8 @@ class GroupMessage(db.Model):
             'group_id': self.group_id,
             'sender_id': self.sender_id,
             'content': self.content,
-            'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
-            'audio_url': url_for('static', filename=self.audio_path) if self.audio_path else '',
+            'image_url': get_file_url(self.image_path) if self.image_path else '',
+            'audio_url': get_file_url(self.audio_path) if self.audio_path else '',
             'message_type': self.message_type,
             'created_at': self.created_at.strftime('%H:%M'),
             'created_date': self.created_at.strftime('%d.%m.%Y'),
@@ -235,7 +281,7 @@ class Channel(db.Model):
             'name': self.name,
             'username': self.username,
             'description': self.description,
-            'avatar': url_for('static', filename=self.avatar) if self.avatar else '',
+            'avatar': get_file_url(self.avatar) if self.avatar else '',
             'owner_id': self.owner_id,
             'is_live': self.is_live,
             'sub_count': self.sub_count(),
@@ -273,7 +319,7 @@ class ChannelPost(db.Model):
             'id': self.id,
             'channel_id': self.channel_id,
             'content': self.content,
-            'image_url': url_for('static', filename=self.image_path) if self.image_path else '',
+            'image_url': get_file_url(self.image_path) if self.image_path else '',
             'message_type': self.message_type,
             'views': self.views,
             'created_at': self.created_at.strftime('%H:%M'),
@@ -593,19 +639,13 @@ def api_send_message():
             ext = f.filename.rsplit('.', 1)[1].lower()
             if ext in ALLOWED_AUDIO:
                 fname = f"{uuid.uuid4().hex}.{ext}"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                f.save(fpath)
-                audio_path = f"uploads/audio/{fname}"
+                f.stream.seek(0)
+                audio_path = save_upload(f.stream.read(), 'audio', fname, f.mimetype or 'audio/webm')
                 msg_type = 'voice' if request.form.get('is_voice') else 'audio'
             else:
                 compressed = compress_image(f)
                 fname = f"{uuid.uuid4().hex}.jpg"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                with open(fpath, 'wb') as fp:
-                    fp.write(compressed.read())
-                image_path = f"uploads/messages/{fname}"
+                image_path = save_upload(compressed.read(), 'messages', fname, 'image/jpeg')
                 msg_type = 'mixed' if content else 'image'
 
     if 'audio' in request.files:
@@ -613,10 +653,8 @@ def api_send_message():
         if f and f.filename:
             ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'webm'
             fname = f"{uuid.uuid4().hex}.{ext}"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            f.save(fpath)
-            audio_path = f"uploads/audio/{fname}"
+            f.stream.seek(0)
+            audio_path = save_upload(f.stream.read(), 'audio', fname, f.mimetype or 'audio/webm')
             msg_type = 'voice' if request.form.get('is_voice') else 'audio'
 
     if not content and not image_path and not audio_path:
@@ -782,19 +820,13 @@ def api_send_group_message(group_id):
             ext = f.filename.rsplit('.', 1)[1].lower()
             if ext in ALLOWED_AUDIO:
                 fname = f"{uuid.uuid4().hex}.{ext}"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                f.save(fpath)
-                audio_path = f"uploads/audio/{fname}"
+                f.stream.seek(0)
+                audio_path = save_upload(f.stream.read(), 'audio', fname, f.mimetype or 'audio/webm')
                 msg_type = 'voice' if request.form.get('is_voice') else 'audio'
             else:
                 compressed = compress_image(f)
                 fname = f"{uuid.uuid4().hex}.jpg"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                with open(fpath, 'wb') as fp:
-                    fp.write(compressed.read())
-                image_path = f"uploads/messages/{fname}"
+                image_path = save_upload(compressed.read(), 'messages', fname, 'image/jpeg')
                 msg_type = 'mixed' if content else 'image'
 
     if 'audio' in request.files:
@@ -802,10 +834,8 @@ def api_send_group_message(group_id):
         if f and f.filename:
             ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'webm'
             fname = f"{uuid.uuid4().hex}.{ext}"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'audio', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            f.save(fpath)
-            audio_path = f"uploads/audio/{fname}"
+            f.stream.seek(0)
+            audio_path = save_upload(f.stream.read(), 'audio', fname, f.mimetype or 'audio/webm')
             msg_type = 'voice' if request.form.get('is_voice') else 'audio'
 
     if not content and not image_path and not audio_path:
@@ -999,11 +1029,7 @@ def create_channel():
             if f and f.filename and allowed_file(f.filename):
                 compressed = compress_image(f, max_size=(400, 400), quality=85)
                 fname = f"channel_{uuid.uuid4().hex[:8]}.jpg"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                with open(fpath, 'wb') as fp:
-                    fp.write(compressed.read())
-                ch.avatar = f"uploads/avatars/{fname}"
+                ch.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
 
         db.session.add(ch)
         db.session.flush()
@@ -1061,11 +1087,7 @@ def channel_post_create(ch_username):
         if f and f.filename and allowed_file(f.filename):
             compressed = compress_image(f)
             fname = f"{uuid.uuid4().hex}.jpg"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'messages', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, 'wb') as fp:
-                fp.write(compressed.read())
-            image_path = f"uploads/messages/{fname}"
+            image_path = save_upload(compressed.read(), 'messages', fname, 'image/jpeg')
             msg_type = 'mixed' if content else 'image'
 
     if not content and not image_path:
@@ -1261,11 +1283,7 @@ def api_profile_update():
         if f and f.filename and allowed_file(f.filename):
             compressed = compress_image(f, max_size=(400, 400), quality=85)
             fname = f"avatar_{user.id}_{uuid.uuid4().hex[:8]}.jpg"
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, 'wb') as fp:
-                fp.write(compressed.read())
-            user.avatar = f"uploads/avatars/{fname}"
+            user.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
 
     db.session.commit()
     socketio.emit('user_updated', user.to_dict(), namespace='/')
@@ -1331,11 +1349,7 @@ def edit_profile():
             if f and f.filename and allowed_file(f.filename):
                 compressed = compress_image(f, max_size=(400, 400), quality=85)
                 fname = f"avatar_{user.id}_{uuid.uuid4().hex[:8]}.jpg"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                with open(fpath, 'wb') as fp:
-                    fp.write(compressed.read())
-                user.avatar = f"uploads/avatars/{fname}"
+                user.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
 
         db.session.commit()
         # Уведомить всех онлайн-пользователей об изменении профиля
@@ -1526,11 +1540,7 @@ def admin_user_action(user_id):
             if f and f.filename and allowed_file(f.filename):
                 compressed = compress_image(f, max_size=(400, 400), quality=85)
                 fname = f"avatar_{target.id}_{uuid.uuid4().hex[:8]}.jpg"
-                fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars', fname)
-                os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                with open(fpath, 'wb') as fp:
-                    fp.write(compressed.read())
-                target.avatar = f"uploads/avatars/{fname}"
+                target.avatar = save_upload(compressed.read(), 'avatars', fname, 'image/jpeg')
                 db.session.commit()
                 flash('Аватар изменён.', 'success')
 

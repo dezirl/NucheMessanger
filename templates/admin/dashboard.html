@@ -68,7 +68,7 @@
           <td>
             <div style="display:flex;align-items:center;gap:10px;">
               {% if user.avatar %}
-              <img class="avatar avatar-sm" src="{{ url_for('static', filename=user.avatar) }}" alt="">
+              <img class="avatar avatar-sm" src="{{ file_url(user.avatar) }}" alt="">
               {% else %}
               <div class="avatar-placeholder sm">{{ user.display_name[0].upper() }}</div>
               {% endif %}

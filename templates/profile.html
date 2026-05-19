@@ -33,7 +33,7 @@
   <div class="profile-header">
     <div class="avatar-wrap">
       {% if profile_user.avatar %}
-      <img class="avatar avatar-xl" src="{{ url_for('static', filename=profile_user.avatar) }}" alt="">
+      <img class="avatar avatar-xl" src="{{ file_url(profile_user.avatar) }}" alt="">
       {% else %}
       <div class="avatar-placeholder lg">{{ profile_user.display_name[0].upper() }}</div>
       {% endif %}
