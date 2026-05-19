@@ -3,7 +3,6 @@ import io
 import uuid
 from datetime import datetime
 from functools import wraps
-import boto3
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, session, jsonify, send_from_directory)
@@ -26,37 +25,32 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
-# ── Cloud storage (Backblaze B2 / S3-compatible) ──────────────────────────────
-_R2_BUCKET = os.environ.get('R2_BUCKET_NAME', '')
-_R2_PUBLIC_URL = os.environ.get('R2_PUBLIC_URL', '')
-_r2_client = None
+# ── Cloud storage (Supabase Storage) ─────────────────────────────────────────
+_SB_URL = os.environ.get('SUPABASE_URL', '')
+_SB_KEY = os.environ.get('SUPABASE_KEY', '')
+_SB_BUCKET = os.environ.get('SUPABASE_BUCKET', 'uploads')
+_sb_client = None
 
-def _get_r2():
-    global _r2_client
-    endpoint = os.environ.get('R2_ENDPOINT_URL', '')
-    if _r2_client is None and endpoint and _R2_BUCKET:
-        # Extract region from B2 endpoint like s3.us-east-005.backblazeb2.com
-        import re as _re
-        m = _re.search(r's3\.([a-z0-9-]+)\.backblazeb2\.com', endpoint)
-        region = m.group(1) if m else 'us-east-005'
-        from botocore.config import Config as _BConfig
-        _r2_client = boto3.client(
-            's3',
-            endpoint_url=endpoint,
-            aws_access_key_id=os.environ.get('R2_ACCESS_KEY_ID', ''),
-            aws_secret_access_key=os.environ.get('R2_SECRET_ACCESS_KEY', ''),
-            region_name=region,
-            config=_BConfig(signature_version='s3v4'),
-        )
-    return _r2_client
+def _get_sb():
+    global _sb_client
+    if _sb_client is None and _SB_URL and _SB_KEY:
+        from supabase import create_client
+        _sb_client = create_client(_SB_URL, _SB_KEY)
+    return _sb_client
 
 def save_upload(data, subfolder, filename, content_type='application/octet-stream'):
-    """Upload file to R2 or save locally. Returns relative key uploads/subfolder/filename."""
+    """Upload file to Supabase Storage or save locally. Returns key uploads/subfolder/filename."""
     key = f"uploads/{subfolder}/{filename}"
     body = data if isinstance(data, bytes) else data.read()
-    client = _get_r2()
-    if client and _R2_BUCKET:
-        client.put_object(Bucket=_R2_BUCKET, Key=key, Body=body, ContentType=content_type)
+    client = _get_sb()
+    if client:
+        try:
+            client.storage.from_(_SB_BUCKET).upload(
+                path=key, file=body,
+                file_options={'content-type': content_type, 'upsert': 'true'}
+            )
+        except Exception as e:
+            print(f'[Storage] upload error: {e}')
     else:
         fpath = os.path.join('static', key)
         os.makedirs(os.path.dirname(fpath), exist_ok=True)
@@ -70,8 +64,9 @@ def get_file_url(path):
         return ''
     if path.startswith('http://') or path.startswith('https://'):
         return path
-    if _R2_PUBLIC_URL:
-        return _R2_PUBLIC_URL.rstrip('/') + '/' + path.lstrip('/')
+    client = _get_sb()
+    if client:
+        return client.storage.from_(_SB_BUCKET).get_public_url(path)
     return url_for('static', filename=path)
 
 @app.context_processor
