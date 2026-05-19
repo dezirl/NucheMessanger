@@ -58,7 +58,7 @@ function playAudio(url, senderName, msgEl) {
     if (audioIdx === -1) { audioPlaylist.push({url, senderName}); audioIdx = audioPlaylist.length - 1; }
   } else { audioIdx = existing; }
   _audio.src = audioPlaylist[audioIdx].url;
-  _audio.play();
+  _audio.play().catch(e => console.warn('Audio play error:', e));
   document.getElementById('apbName').textContent = audioPlaylist[audioIdx].senderName || 'Аудио';
   document.getElementById('audioPlayerBar').classList.add('visible');
 }
@@ -80,7 +80,7 @@ function audioPlayerNext() {
   if (audioIdx < audioPlaylist.length - 1) {
     audioIdx++;
     _audio.src = audioPlaylist[audioIdx].url;
-    _audio.play();
+    _audio.play().catch(e => console.warn('Audio play error:', e));
     document.getElementById('apbName').textContent = audioPlaylist[audioIdx].senderName || 'Аудио';
   } else { closeAudioPlayer(); }
 }
@@ -88,7 +88,7 @@ function audioPlayerPrev() {
   if (audioIdx > 0) {
     audioIdx--;
     _audio.src = audioPlaylist[audioIdx].url;
-    _audio.play();
+    _audio.play().catch(e => console.warn('Audio play error:', e));
     document.getElementById('apbName').textContent = audioPlaylist[audioIdx].senderName || 'Аудио';
   }
 }
@@ -1096,7 +1096,11 @@ function sendMessage() {
   if (!text && !selectedFile) return;
   const fd = new FormData();
   fd.append('content', text);
-  if (selectedFile) fd.append('image', selectedFile);
+  if (selectedFile) {
+    const isAudio = selectedFile.type.startsWith('audio/') ||
+      /\.(mp3|ogg|wav|webm|m4a)$/i.test(selectedFile.name);
+    fd.append(isAudio ? 'audio' : 'image', selectedFile);
+  }
   if (replyToMsg) { fd.append('reply_to_id', replyToMsg.id); cancelReply(); }
   input.value = '';
   autoResize(input);
@@ -1110,8 +1114,16 @@ function sendMessage() {
     url = '/api/send_message';
   } else return;
   fetch(url, { method: 'POST', body: fd })
-    .then(r => r.json())
-    .then(msg => { if (msg.error) return; appendMessage(msg); scrollToBottom(); });
+    .then(r => {
+      if (!r.ok && r.status !== 400) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(msg => {
+      if (msg.error) { console.warn('Send error:', msg.error); return; }
+      appendMessage(msg);
+      scrollToBottom();
+    })
+    .catch(e => console.error('sendMessage failed:', e));
 }
 
 // ── File handling ─────────────────────────────────────────────────────────────

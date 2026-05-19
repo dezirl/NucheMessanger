@@ -461,9 +461,10 @@ def conv_room(uid1, uid2):
 
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
-    from flask import send_from_directory
+    import mimetypes
     base = _UPLOAD_BASE if _UPLOAD_BASE else os.path.join(os.getcwd(), 'static')
-    return send_from_directory(base, filename)
+    mime, _ = mimetypes.guess_type(filename)
+    return send_from_directory(base, filename, mimetype=mime or 'application/octet-stream', conditional=True)
 
 @app.route('/')
 def index():
