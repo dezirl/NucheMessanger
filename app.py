@@ -156,11 +156,23 @@ class Message(db.Model):
     deleted_for_sender = db.Column(db.Boolean, default=False)
     deleted_for_receiver = db.Column(db.Boolean, default=False)
     deleted_for_all = db.Column(db.Boolean, default=False)
+    reply_to_id = db.Column(db.Integer, nullable=True)
 
     sender = db.relationship('User', foreign_keys=[sender_id])
     receiver = db.relationship('User', foreign_keys=[receiver_id])
 
     def to_dict(self):
+        reply_data = None
+        if self.reply_to_id:
+            r = db.session.get(Message, self.reply_to_id)
+            if r:
+                reply_data = {
+                    'id': r.id,
+                    'content': (r.content or '')[:80],
+                    'sender_name': r.sender.display_name if r.sender else '?',
+                    'message_type': r.message_type,
+                    'image_url': get_file_url(r.image_path) if r.image_path else '',
+                }
         return {
             'id': self.id,
             'sender_id': self.sender_id,
@@ -174,6 +186,7 @@ class Message(db.Model):
             'is_read': self.is_read,
             'is_edited': self.is_edited,
             'deleted_for_all': self.deleted_for_all,
+            'reply_to': reply_data,
             'sender': self.sender.to_dict() if self.sender else None,
         }
 
@@ -236,10 +249,22 @@ class GroupMessage(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_edited = db.Column(db.Boolean, default=False)
     is_deleted = db.Column(db.Boolean, default=False)
+    reply_to_id = db.Column(db.Integer, nullable=True)
 
     sender = db.relationship('User')
 
     def to_dict(self):
+        reply_data = None
+        if self.reply_to_id:
+            r = db.session.get(GroupMessage, self.reply_to_id)
+            if r:
+                reply_data = {
+                    'id': r.id,
+                    'content': (r.content or '')[:80],
+                    'sender_name': r.sender.display_name if r.sender else '?',
+                    'message_type': r.message_type,
+                    'image_url': get_file_url(r.image_path) if r.image_path else '',
+                }
         return {
             'id': self.id,
             'group_id': self.group_id,
@@ -252,6 +277,7 @@ class GroupMessage(db.Model):
             'created_date': self.created_at.strftime('%d.%m.%Y'),
             'is_edited': self.is_edited,
             'is_deleted': self.is_deleted,
+            'reply_to': reply_data,
             'sender': self.sender.to_dict() if self.sender else None,
         }
 
@@ -660,8 +686,10 @@ def api_send_message():
     if not content and not image_path and not audio_path:
         return jsonify({'error': 'empty message'}), 400
 
+    reply_to_id = request.form.get('reply_to_id', type=int)
     msg = Message(sender_id=uid, receiver_id=receiver_id,
-                  content=content, image_path=image_path, audio_path=audio_path, message_type=msg_type)
+                  content=content, image_path=image_path, audio_path=audio_path,
+                  message_type=msg_type, reply_to_id=reply_to_id)
     db.session.add(msg)
     db.session.commit()
 
@@ -841,8 +869,10 @@ def api_send_group_message(group_id):
     if not content and not image_path and not audio_path:
         return jsonify({'error': 'empty message'}), 400
 
+    reply_to_id = request.form.get('reply_to_id', type=int)
     msg = GroupMessage(group_id=group_id, sender_id=uid,
-                       content=content, image_path=image_path, audio_path=audio_path, message_type=msg_type)
+                       content=content, image_path=image_path, audio_path=audio_path,
+                       message_type=msg_type, reply_to_id=reply_to_id)
     db.session.add(msg)
     db.session.commit()
 
@@ -1917,6 +1947,8 @@ def init_db():
         'ALTER TABLE "group_message" ADD COLUMN audio_path VARCHAR(256) DEFAULT \'\'',
         'ALTER TABLE "channel_post" ADD COLUMN is_edited BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "channel_post" ADD COLUMN comment_count INTEGER DEFAULT 0',
+        'ALTER TABLE "message" ADD COLUMN reply_to_id INTEGER DEFAULT NULL',
+        'ALTER TABLE "group_message" ADD COLUMN reply_to_id INTEGER DEFAULT NULL',
     ]
     for sql in migrations:
         try:

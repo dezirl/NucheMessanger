@@ -13,8 +13,10 @@ let pinnedChats = [];
 let unreadBelowCount = 0;
 let ctxMsgId = null;
 let ctxMsgSenderId = null;
+let ctxMsgText = '';
 let ctxChatType = null;
 let ctxGroupId = null;
+let replyToMsg = null; // {id, senderName, text}
 
 // ── Audio player state ──────────────────────────────────────────────────────
 const _audio = new Audio();
@@ -584,6 +586,13 @@ function loadPartnerInfo(partnerId) {
     });
 }
 
+// ── Chat header click ─────────────────────────────────────────────────────────
+
+function openChatInfo() {
+  if (currentChatType === 'group') openGroupMembersModal();
+  else openUserInfoPanel();
+}
+
 // ── User Info Panel ───────────────────────────────────────────────────────────
 
 function openUserInfoPanel() {
@@ -786,6 +795,14 @@ function renderMessage(msg) {
   } else if (msg.is_deleted) {
     content = '<em style="opacity:0.5;font-size:13px;">Сообщение удалено</em>';
   } else {
+    if (msg.reply_to) {
+      const rt = msg.reply_to;
+      const rtText = rt.message_type === 'image' ? '📷 Фото' : (rt.message_type === 'voice' ? '🎤 Голосовое' : escapeHtml((rt.content || '').slice(0, 60)));
+      content += `<div class="reply-quote" onclick="scrollToMsg(${rt.id})">
+        <div class="reply-quote-name">${escapeHtml(rt.sender_name)}</div>
+        <div class="reply-quote-text">${rtText}</div>
+      </div>`;
+    }
     if (msg.audio_url || (msg.message_type === 'audio' || msg.message_type === 'voice')) {
       const audioUrl = msg.audio_url || '';
       const sName = msg.sender ? msg.sender.display_name : 'Аудио';
@@ -812,8 +829,9 @@ function renderMessage(msg) {
     ? `<svg class="read-check" fill="none" viewBox="0 0 24 24" stroke="${msg.is_read ? '#818cf8' : 'rgba(255,255,255,0.5)'}"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`
     : '';
 
+  const _msgTextEsc = (msg.content || '').replace(/'/g, "\\'").replace(/\n/g, ' ');
   return `<div class="message-row ${cls}" data-msg-id="${msg.id || ''}" data-sender-id="${msg.sender_id || ''}"
-    oncontextmenu="openMsgContextMenu(event,${msg.id||0},${msg.sender_id||0},'${msg.message_type||'text'}')">
+    oncontextmenu="openMsgContextMenu(event,${msg.id||0},${msg.sender_id||0},'${msg.message_type||'text'}','${_msgTextEsc}')">
     ${avatar}
     <div class="message-bubble">
       ${senderName}${content}
@@ -834,6 +852,15 @@ function scrollToBottom() {
   area.scrollTop = area.scrollHeight;
   unreadBelowCount = 0;
   updateScrollBtn();
+}
+
+function scrollToMsg(msgId) {
+  const row = document.querySelector(`.message-row[data-msg-id="${msgId}"]`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.style.transition = 'background 0.3s';
+  row.style.background = 'rgba(99,102,241,0.15)';
+  setTimeout(() => { row.style.background = ''; }, 1200);
 }
 
 function isNearBottom() {
@@ -858,36 +885,110 @@ if (messagesAreaEl) {
 
 // ── Message context menu ──────────────────────────────────────────────────────
 
-function openMsgContextMenu(e, msgId, senderId, msgType) {
+function openMsgContextMenu(e, msgId, senderId, msgType, msgText) {
   e.preventDefault();
   if (!msgId) return;
   ctxMsgId = msgId;
   ctxMsgSenderId = senderId;
+  ctxMsgText = msgText || '';
   ctxChatType = currentChatType;
   ctxGroupId = currentGroupId;
 
   const menu = document.getElementById('ctxMenu');
   const isOwn = senderId === CURRENT_USER_ID;
   const isText = msgType === 'text' || msgType === 'mixed';
+  const hasText = !!msgText;
 
+  document.getElementById('ctxPin').style.display = 'none';
+  document.getElementById('ctxSep1').style.display = '';
+  document.getElementById('ctxReply').style.display = '';
+  document.getElementById('ctxForward').style.display = hasText ? '' : 'none';
+  document.getElementById('ctxCopy').style.display = hasText ? '' : 'none';
   document.getElementById('ctxEdit').style.display = (isOwn && isText) ? '' : 'none';
   document.getElementById('ctxDeleteAll').style.display = isOwn ? '' : 'none';
-  document.getElementById('ctxPin').style.display = 'none';
-  document.querySelectorAll('.ctx-item').forEach(i => {
-    if (i.id === 'ctxPin') i.style.display = 'none';
-    else i.style.display = '';
-  });
-  document.getElementById('ctxEdit').style.display = (isOwn && isText) ? '' : 'none';
-  document.getElementById('ctxDeleteAll').style.display = isOwn ? '' : 'none';
-  document.getElementById('ctxPin').style.display = 'none';
 
   menu.style.display = 'block';
-  menu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
-  menu.style.top = Math.min(e.clientY, window.innerHeight - 130) + 'px';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
 }
 
 function hideCtxMenu() {
   document.getElementById('ctxMenu').style.display = 'none';
+}
+
+// ── Reply ─────────────────────────────────────────────────────────────────────
+
+function ctxReplyMessage() {
+  hideCtxMenu();
+  if (!ctxMsgId) return;
+  const row = document.querySelector(`.message-row[data-msg-id="${ctxMsgId}"]`);
+  const senderName = row ? (row.querySelector('.msg-sender-name')?.textContent || (ctxMsgSenderId === CURRENT_USER_ID ? 'Вы' : '')) : '';
+  const text = ctxMsgText || (row?.querySelector('.msg-text')?.textContent) || '📷 Медиа';
+  replyToMsg = { id: ctxMsgId, senderName, text };
+  document.getElementById('replyPreviewName').textContent = senderName || 'Вы';
+  document.getElementById('replyPreviewText').textContent = text.slice(0, 80);
+  document.getElementById('replyPreview').style.display = 'flex';
+  document.getElementById('messageInput').focus();
+}
+
+function cancelReply() {
+  replyToMsg = null;
+  document.getElementById('replyPreview').style.display = 'none';
+}
+
+// ── Copy ──────────────────────────────────────────────────────────────────────
+
+function ctxCopyMessage() {
+  hideCtxMenu();
+  if (ctxMsgText) navigator.clipboard.writeText(ctxMsgText).catch(() => {});
+}
+
+// ── Forward ───────────────────────────────────────────────────────────────────
+
+let _fwdMsgId = null, _fwdMsgText = '', _fwdChatType = null, _fwdGroupId = null;
+
+function ctxForwardMessage() {
+  hideCtxMenu();
+  _fwdMsgId = ctxMsgId;
+  _fwdMsgText = ctxMsgText;
+  _fwdChatType = ctxChatType;
+  _fwdGroupId = ctxGroupId;
+  const list = document.getElementById('forwardConvList');
+  list.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px;">Загрузка...</div>';
+  document.getElementById('forwardModal').classList.add('open');
+  const items = _lastConvItems.filter(i => i.type === 'direct' || i.type === 'group');
+  if (!items.length) { list.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px;">Нет диалогов</div>'; return; }
+  list.innerHTML = items.map(item => {
+    if (item.type === 'direct') {
+      const p = item.data.partner;
+      const initials = p.display_name ? p.display_name[0].toUpperCase() : '?';
+      const av = p.avatar ? `<img class="avatar" style="width:36px;height:36px;" src="${p.avatar}" alt="">` : `<div class="avatar-placeholder" style="width:36px;height:36px;font-size:13px;">${initials}</div>`;
+      return `<div class="member-list-item" onclick="doForward('direct',${p.id})"><div class="avatar-wrap">${av}</div><div class="member-info"><div class="member-name">${escapeHtml(p.display_name)}</div></div></div>`;
+    } else {
+      const g = item.data.group;
+      const initials = g.name ? g.name[0].toUpperCase() : '#';
+      const av = g.avatar ? `<img class="avatar" style="width:36px;height:36px;" src="${g.avatar}" alt="">` : `<div class="conv-group-badge" style="width:36px;height:36px;font-size:13px;">${initials}</div>`;
+      return `<div class="member-list-item" onclick="doForward('group',${g.id})"><div class="avatar-wrap">${av}</div><div class="member-info"><div class="member-name">${escapeHtml(g.name)}</div><div class="member-username">группа</div></div></div>`;
+    }
+  }).join('');
+}
+
+function closeForwardModal() {
+  document.getElementById('forwardModal').classList.remove('open');
+}
+
+function doForward(type, id) {
+  closeForwardModal();
+  if (!_fwdMsgText) return;
+  const fd = new FormData();
+  fd.append('content', _fwdMsgText);
+  let url;
+  if (type === 'group') { url = `/api/groups/${id}/send`; }
+  else { fd.append('receiver_id', id); url = '/api/send_message'; }
+  fetch(url, { method: 'POST', body: fd }).then(r => r.json()).then(msg => {
+    if (!msg.error && type === 'direct' && id === currentPartnerId) { appendMessage(msg); scrollToBottom(); }
+    if (!msg.error && type === 'group' && id === currentGroupId) { appendMessage(msg); scrollToBottom(); }
+  });
 }
 
 function ctxEditMessage() {
@@ -985,7 +1086,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#ctxMenu')) hideCtxMenu();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { hideCtxMenu(); closeUserInfoPanel(); }
+  if (e.key === 'Escape') { hideCtxMenu(); closeUserInfoPanel(); closeForwardModal(); cancelReply(); }
 });
 
 // ── Send message ──────────────────────────────────────────────────────────────
@@ -997,6 +1098,7 @@ function sendMessage() {
   const fd = new FormData();
   fd.append('content', text);
   if (selectedFile) fd.append('image', selectedFile);
+  if (replyToMsg) { fd.append('reply_to_id', replyToMsg.id); cancelReply(); }
   input.value = '';
   autoResize(input);
   clearFileAttachment();
