@@ -26,20 +26,27 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
-# ── Cloud storage (Cloudflare R2 / S3-compatible) ─────────────────────────────
+# ── Cloud storage (Backblaze B2 / S3-compatible) ──────────────────────────────
 _R2_BUCKET = os.environ.get('R2_BUCKET_NAME', '')
 _R2_PUBLIC_URL = os.environ.get('R2_PUBLIC_URL', '')
 _r2_client = None
 
 def _get_r2():
     global _r2_client
-    if _r2_client is None and os.environ.get('R2_ENDPOINT_URL') and _R2_BUCKET:
+    endpoint = os.environ.get('R2_ENDPOINT_URL', '')
+    if _r2_client is None and endpoint and _R2_BUCKET:
+        # Extract region from B2 endpoint like s3.us-east-005.backblazeb2.com
+        import re as _re
+        m = _re.search(r's3\.([a-z0-9-]+)\.backblazeb2\.com', endpoint)
+        region = m.group(1) if m else 'us-east-005'
+        from botocore.config import Config as _BConfig
         _r2_client = boto3.client(
             's3',
-            endpoint_url=os.environ.get('R2_ENDPOINT_URL'),
+            endpoint_url=endpoint,
             aws_access_key_id=os.environ.get('R2_ACCESS_KEY_ID', ''),
             aws_secret_access_key=os.environ.get('R2_SECRET_ACCESS_KEY', ''),
-            region_name='auto',
+            region_name=region,
+            config=_BConfig(signature_version='s3v4'),
         )
     return _r2_client
 
