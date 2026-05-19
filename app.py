@@ -25,25 +25,33 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
-# ── File storage (local, Railway volume mounted at /app/static/uploads) ───────
-_UPLOAD_BASE = os.environ.get('UPLOAD_BASE', os.path.join('static', 'uploads'))
+# ── File storage ──────────────────────────────────────────────────────────────
+# UPLOAD_BASE can be set to a Railway volume mount path, e.g. /data
+# If not set, files go to static/uploads (ephemeral on Railway without volume)
+_UPLOAD_BASE = os.environ.get('UPLOAD_BASE', '')
+
+def _upload_path(key):
+    """Return absolute filesystem path for a file key like uploads/avatars/x.jpg"""
+    if _UPLOAD_BASE:
+        return os.path.join(_UPLOAD_BASE, key)
+    return os.path.join('static', key)
 
 def save_upload(data, subfolder, filename, content_type='application/octet-stream'):
-    """Save file to local filesystem. Returns key uploads/subfolder/filename."""
     key = f"uploads/{subfolder}/{filename}"
     body = data if isinstance(data, bytes) else data.read()
-    fpath = os.path.join('static', key)
+    fpath = _upload_path(key)
     os.makedirs(os.path.dirname(fpath), exist_ok=True)
     with open(fpath, 'wb') as fp:
         fp.write(body)
     return key
 
 def get_file_url(path):
-    """Return public URL for a stored file path."""
     if not path:
         return ''
     if path.startswith('http://') or path.startswith('https://'):
         return path
+    if _UPLOAD_BASE:
+        return url_for('serve_upload', filename=path)
     return url_for('static', filename=path)
 
 @app.context_processor
@@ -450,6 +458,12 @@ def conv_room(uid1, uid2):
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    from flask import send_from_directory
+    base = _UPLOAD_BASE if _UPLOAD_BASE else os.path.join(os.getcwd(), 'static')
+    return send_from_directory(base, filename)
 
 @app.route('/')
 def index():

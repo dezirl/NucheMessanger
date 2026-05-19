@@ -507,7 +507,6 @@ function openGroup(groupId) {
   loadConversations();
   document.getElementById('callAudioBtn').style.display = 'none';
   document.getElementById('callVideoBtn').style.display = 'none';
-  document.getElementById('groupMembersBtn').style.display = '';
 }
 
 function loadGroupInfo(groupId) {
@@ -565,7 +564,6 @@ function showChatWindow() {
     </div>`;
   document.getElementById('callAudioBtn').style.display = '';
   document.getElementById('callVideoBtn').style.display = '';
-  document.getElementById('groupMembersBtn').style.display = 'none';
 }
 
 function loadPartnerInfo(partnerId) {
